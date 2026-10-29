@@ -23,8 +23,10 @@ export interface AppOptions {
   rateLimiter?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   fetchImpl?: typeof fetch;
   now?: () => number;
-  /** Requests per minute for the same-origin web app, which does not send an API key. */
+  /** Requests per minute for first-party web apps, which do not send an API key. */
   firstPartyLimit?: number;
+  /** Comma-separated browser origins treated like this host for keyless access. */
+  firstPartyOrigins?: string;
 }
 
 const FIRST_PARTY_LIMIT = 60;
@@ -35,11 +37,12 @@ export function createApp(options: AppOptions) {
   const app = new Hono();
   const now = options.now ?? (() => Date.now());
   const fetchImpl = options.fetchImpl ?? fetch;
+  const extraOrigins = parseOriginList(options.firstPartyOrigins);
 
   app.use(
     "/api/*",
     cors({
-      origin: "*",
+      origin: (requestOrigin, c) => allowOriginHeader(requestOrigin, c.req.url, options.environment, extraOrigins),
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Content-Type", "X-Api-Key", "Authorization"],
       maxAge: 86400,
@@ -88,7 +91,7 @@ export function createApp(options: AppOptions) {
       if (!allowed) return allowedResponse(c);
       return next();
     }
-    if (isFirstParty(c.req.raw, options.environment)) {
+    if (isFirstParty(c.req.raw, options.environment, extraOrigins)) {
       const limit = options.firstPartyLimit ?? FIRST_PARTY_LIMIT;
       const allowed = await enforceLimit(c, options, `web:${clientIp(c.req.raw)}`, limit, now());
       if (!allowed) return allowedResponse(c);
@@ -98,7 +101,7 @@ export function createApp(options: AppOptions) {
       c,
       401,
       "unauthorized",
-      "Send X-Api-Key or Authorization: Bearer. The Vinmeen site on this host can call the API without a key. Issue a key with POST /api/v1/keys for any other app.",
+      "Send X-Api-Key or Authorization: Bearer. The Vinmeen site on this host, and origins in FIRST_PARTY_ORIGINS, can call the API without a key. Issue a key with POST /api/v1/keys for any other app.",
     );
   });
 
@@ -341,21 +344,60 @@ function clientIp(request: Request): string {
   return "local";
 }
 
-function isFirstParty(request: Request, environment: string | undefined): boolean {
+function parseOriginList(value: string | undefined): Set<string> {
+  const origins = new Set<string>();
+  if (!value) return origins;
+  for (const part of value.split(",")) {
+    const origin = canonicalOrigin(part);
+    if (origin) origins.add(origin);
+  }
+  return origins;
+}
+
+function canonicalOrigin(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Echo allowlisted, same-host, and local-dev origins. Every other origin still gets `*` so API-key callers stay cross-origin. */
+function allowOriginHeader(
+  requestOrigin: string,
+  requestUrl: string,
+  environment: string | undefined,
+  extraOrigins: ReadonlySet<string>,
+): string {
+  const origin = canonicalOrigin(requestOrigin);
+  if (!origin) return "*";
+  if (extraOrigins.has(origin)) return origin;
+  let request: URL;
+  try {
+    request = new URL(requestUrl);
+  } catch {
+    return "*";
+  }
+  const originUrl = new URL(origin);
+  if (originUrl.host === request.host) return origin;
+  if (environment !== "production" && isLoopback(originUrl.hostname) && isLoopback(request.hostname)) return origin;
+  return "*";
+}
+
+function isFirstParty(request: Request, environment: string | undefined, extraOrigins: ReadonlySet<string>): boolean {
   const url = new URL(request.url);
+  const origin = canonicalOrigin(request.headers.get("origin") ?? "");
+  if (origin && extraOrigins.has(origin)) return true;
   const fetchSite = request.headers.get("sec-fetch-site");
   if (fetchSite === "cross-site" || fetchSite === "same-site") return false;
-  const origin = request.headers.get("origin");
   if (!origin) return fetchSite === "same-origin";
-  let originUrl: URL;
-  try {
-    originUrl = new URL(origin);
-  } catch {
-    return false;
-  }
+  const originUrl = new URL(origin);
   const sameHost = originUrl.host === url.host;
-  const localDev =
-    environment !== "production" && isLoopback(originUrl.hostname) && isLoopback(url.hostname);
+  const localDev = environment !== "production" && isLoopback(originUrl.hostname) && isLoopback(url.hostname);
   if (!sameHost && !localDev) return false;
   if (fetchSite && fetchSite !== "same-origin") return false;
   return true;
@@ -512,7 +554,7 @@ function docsHtml(): string {
 <body>
   <header>
     <h1>Vinmeen API</h1>
-    <p>விண்மீன் · Porutham for Tamil families. The site on this host calls the API with no key. Any other app sends <code>X-Api-Key</code>. Issue one with <code>POST /api/v1/keys</code>. Local wrangler dev also accepts <code>${DEV_TOKEN}</code> until you run in production.</p>
+    <p>விண்மீன் · Porutham for Tamil families. The site on this host, and browser origins listed in <code>FIRST_PARTY_ORIGINS</code>, call the API with no key. Any other app sends <code>X-Api-Key</code>. Issue one with <code>POST /api/v1/keys</code>. Local wrangler dev also accepts <code>${DEV_TOKEN}</code> until you run in production.</p>
     <pre>curl -s -H "X-Api-Key: ${DEV_TOKEN}" \\
   -H "Content-Type: application/json" \\
   -d '{"date":"1990-08-15","time":"10:30","latitude":13.0827,"longitude":80.2707,"timezone":"Asia/Kolkata"}' \\

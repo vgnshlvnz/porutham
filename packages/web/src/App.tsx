@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
+import { ApiError, api, apiUrl, appHref, isResultHref, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
 import { copy, levelLabel, type Lang } from "./i18n";
 
 const RASI_IDS = ["mesha", "rishabha", "mithuna", "kataka", "simha", "kanya", "tula", "vrischika", "dhanus", "makara", "kumbha", "meena"];
@@ -48,23 +48,24 @@ export function App() {
   }, []);
 
   function go(url: string) {
-    window.history.pushState({}, "", url);
-    setHref(url);
+    const next = appHref(url);
+    window.history.pushState({}, "", next);
+    setHref(next);
   }
 
-  const result = href.startsWith("/result");
+  const result = isResultHref(href);
   return (
     <div className="mx-auto min-h-screen max-w-3xl px-4 pb-10 pt-4 sm:px-6">
-      <Header lang={lang} setLang={setLang} t={t} />
+      <Header lang={lang} setLang={setLang} t={t} go={go} />
       {result ? <Result lang={lang} t={t} go={go} /> : <Home lang={lang} t={t} go={go} />}
     </div>
   );
 }
 
-function Header({ lang, setLang, t }: { lang: Lang; setLang: (l: Lang) => void; t: (typeof copy)[Lang] }) {
+function Header({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void; t: (typeof copy)[Lang]; go: (url: string) => void }) {
   return (
     <header className="mb-6 flex items-center justify-between gap-3">
-      <a href="/" className="flex items-center gap-3 text-inherit no-underline" onClick={(e) => { e.preventDefault(); window.history.pushState({}, "", "/"); window.dispatchEvent(new PopStateEvent("popstate")); }}>
+      <a href={appHref("/")} className="flex items-center gap-3 text-inherit no-underline" onClick={(e) => { e.preventDefault(); go("/"); }}>
         <Logo />
         <span>
           <span className="wordmark block text-3xl leading-none text-maroon">Vinmeen</span>
@@ -72,7 +73,7 @@ function Header({ lang, setLang, t }: { lang: Lang; setLang: (l: Lang) => void; 
         </span>
       </a>
       <div className="flex items-center gap-2">
-        <a className="hidden text-sm text-maroon underline-offset-4 hover:underline sm:inline" href="/api/v1/docs">{t.docs}</a>
+        <a className="hidden text-sm text-maroon underline-offset-4 hover:underline sm:inline" href={apiUrl("/api/v1/docs")}>{t.docs}</a>
         <div className="flex rounded-full border border-line bg-white p-1 text-sm">
           {(["en", "ta"] as Lang[]).map((code) => (
             <button key={code} type="button" aria-pressed={lang === code} onClick={() => setLang(code)} className={`rounded-full px-3 py-1.5 ${lang === code ? "bg-maroon text-cream" : "text-ink"}`}>
@@ -402,7 +403,7 @@ function Result({ lang, t, go }: { lang: Lang; t: (typeof copy)[Lang]; go: (url:
   useEffect(() => {
     const next = new URLSearchParams(params);
     next.set("lang", lang);
-    const url = `/result?${next.toString()}`;
+    const url = appHref(`/result?${next.toString()}`);
     if (`${window.location.pathname}${window.location.search}` !== url) {
       window.history.replaceState({}, "", url);
     }

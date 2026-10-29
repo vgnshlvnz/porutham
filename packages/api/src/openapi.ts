@@ -4,7 +4,7 @@ export const openApi = {
     title: "Vinmeen API",
     version: "1.0.0",
     description:
-      "Horoscope porutham for Tamil families. Compute a Lahiri sidereal Moon nakshatra, or match a pair under a named tradition. Third-party apps send X-Api-Key or Authorization: Bearer, issued by POST /api/v1/keys. The Vinmeen site served by this same host calls the API without a key; those requests are limited per IP. A local development key, vnm_dev_local_key, exists only when ENVIRONMENT is not production.",
+      "Horoscope porutham for Tamil families. Compute a Lahiri sidereal Moon nakshatra, or match a pair under a named tradition. Third-party apps send X-Api-Key or Authorization: Bearer, issued by POST /api/v1/keys. The Vinmeen site on this host, and origins listed in FIRST_PARTY_ORIGINS, call the API without a key; those requests are limited per IP. A local development key, vnm_dev_local_key, exists only when ENVIRONMENT is not production.",
   },
   servers: [{ url: "/" }],
   tags: [
