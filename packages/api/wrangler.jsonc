@@ -60,7 +60,7 @@
       },
       "vars": {
         "ENVIRONMENT": "production",
-        "FIRST_PARTY_ORIGINS": "https://vgnshlvnz.github.io"
+        "FIRST_PARTY_ORIGINS": "https://vgnshlv.nz,https://vgnshlvnz.github.io"
       },
       "d1_databases": [
         {
