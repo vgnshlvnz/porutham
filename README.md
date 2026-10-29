@@ -196,3 +196,7 @@ Star names follow common Tamil panchangam spelling (அஸ்வினி, ப�
 ## What this is not
 
 Papa samyam, dasa sandhi outside the Brahmin (6 months) and Kerala (12 months) screens, kiraga pavam, and the Kongu seven-name subset are not invented to fill a gap. Sevvai remedies beyond the cancellations named above are left to the astrologer. The disclaimer on every result says the same thing.
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE).
