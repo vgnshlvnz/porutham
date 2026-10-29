@@ -156,7 +156,7 @@ npm run deploy -w vinmeen-api
 
 ## GitHub Pages
 
-`.github/workflows/pages.yml` builds `packages/web` on every push to `main` and publishes `dist-pages` to the `gh-pages` branch with [peaceiris/actions-gh-pages](https://github.com/peaceiris/actions-gh-pages). `vgnshlvnz.github.io` redirects to the owner's custom domain, so the site is served at [https://vgnshlv.nz/porutham/](https://vgnshlv.nz/porutham/). The build sets `VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev` and Vite `base` to `/porutham/`, so scripts, icons, `manifest.webmanifest`, and the font files resolve under that path. The “API docs” link points at the Worker’s `/api/v1/docs`. `/result` is a client-side route, so the build also writes `404.html` (a copy of `index.html`) and `.nojekyll`.
+`.github/workflows/pages.yml` builds `packages/web` on every push to `main` and deploys that build with GitHub’s Pages action. Pages for this repository publishes from that action. `vgnshlvnz.github.io` redirects to the owner's custom domain, and the site is served at [https://vgnshlv.nz/porutham/](https://vgnshlv.nz/porutham/). The build sets `VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev` and Vite `base` to `/porutham/`, so scripts, icons, `manifest.webmanifest`, and the font files resolve under that path. The “API docs” link points at the Worker’s `/api/v1/docs`. `/result` is a client-side route, so the build also writes `404.html` (a copy of `index.html`) and `.nojekyll`.
 
 Build it locally with:
 
