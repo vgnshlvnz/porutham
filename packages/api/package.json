@@ -1,0 +1,20 @@
+{
+  "name": "vinmeen-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "mkdir -p ../web/dist && wrangler dev --port 8787 --ip 127.0.0.1",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply vinmeen --local",
+    "migrate:remote": "wrangler d1 migrations apply vinmeen --remote"
+  },
+  "dependencies": {
+    "hono": "^4.10.1",
+    "vinmeen-engine": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251008.0",
+    "wrangler": "^4.42.0"
+  }
+}

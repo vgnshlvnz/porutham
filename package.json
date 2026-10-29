@@ -1,0 +1,23 @@
+{
+  "name": "vinmeen",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c magenta,green \"npm run dev -w vinmeen-api\" \"npm run dev -w vinmeen-web\"",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/engine/tsconfig.json --noEmit && tsc -p packages/api/tsconfig.json --noEmit && tsc -p packages/web/tsconfig.json --noEmit",
+    "build": "npm run icons -w vinmeen-web && npm run build -w vinmeen-web",
+    "deploy": "npm run build && npm run deploy -w vinmeen-api",
+    "dev:api": "npm run dev -w vinmeen-api",
+    "dev:web": "npm run dev -w vinmeen-web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

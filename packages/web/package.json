@@ -1,0 +1,30 @@
+{
+  "name": "vinmeen-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4321",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "icons": "node scripts/render-icons.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4321"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@fontsource/fraunces": "^5.2.8",
+    "@fontsource/noto-sans-tamil": "^5.2.8",
+    "@fontsource/noto-serif-tamil": "^5.2.8",
+    "@fontsource/source-sans-3": "^5.2.8",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "sharp": "^0.34.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.10"
+  }
+}

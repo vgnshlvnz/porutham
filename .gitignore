@@ -1,0 +1,12 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+.DS_Store
+*.tsbuildinfo
+.vite
+coverage
+*.log
+.env*.local
+porutham-branding
+agent-tools

@@ -1,0 +1,150 @@
+import { describe, expect, it } from "vitest";
+
+async function bodyOf<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+import { createApp } from "./app.js";
+import { DEV_TOKEN, MemoryKeyStore } from "./store.js";
+
+async function testApp(rateLimit = 60) {
+  const store = new MemoryKeyStore();
+  await store.seedDevKey();
+  if (rateLimit !== 600) {
+    const issued = await store.issue({ name: "Tight", email: "tight@example.com", rateLimit });
+    return { app: createApp({ store, environment: "test", fetchImpl: fetch }), store, token: issued.token, dev: DEV_TOKEN };
+  }
+  return { app: createApp({ store, environment: "test", fetchImpl: fetch }), store, token: DEV_TOKEN, dev: DEV_TOKEN };
+}
+
+function auth(token: string, init: RequestInit = {}): RequestInit {
+  return { ...init, headers: { ...(init.headers ?? {}), "x-api-key": token, "content-type": "application/json" } };
+}
+
+describe("Vinmeen API", () => {
+  it("serves health, docs, and the OpenAPI document without a key", async () => {
+    const { app } = await testApp();
+    expect((await app.request("/api/v1/health")).status).toBe(200);
+    const spec = await app.request("/api/v1/openapi.json");
+    const body = await bodyOf<{ info: { title: string }; paths: Record<string, unknown> }>(spec);
+    expect(body.info.title).toBe("Vinmeen API");
+    expect(body.paths["/api/v1/match"]).toBeTruthy();
+    expect((await app.request("/api/v1/docs")).status).toBe(200);
+    expect(await (await app.request("/api/v1/nakshatras")).json()).toMatchObject({
+      error: { code: "unauthorized" },
+    });
+  });
+
+  it("issues a key once and then accepts it", async () => {
+    const { app } = await testApp();
+    const created = await app.request("/api/v1/keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Amma's app", email: "amma@example.com" }),
+    });
+    expect(created.status).toBe(201);
+    const payload = await bodyOf<{ token: string }>(created);
+    expect(payload.token).toMatch(/^vnm_/);
+    const traditions = await app.request("/api/v1/traditions?lang=ta", auth(payload.token));
+    const list = await bodyOf<{ traditions: { id: string; name: string }[] }>(traditions);
+    expect(list.traditions[0].name).toBe("தமிழ்நாடு");
+    expect(list.traditions.find((t: { id: string; name: string }) => t.id === "ashtakoota")?.name).toContain("அஷ்டகூடம்");
+  });
+
+  it("rejects a bad key request and an unknown tradition", async () => {
+    const { app, dev } = await testApp();
+    const bad = await app.request("/api/v1/keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "A", email: "nope" }),
+    });
+    expect(bad.status).toBe(400);
+    const match = await app.request("/api/v1/match", auth(dev, {
+      method: "POST",
+      body: JSON.stringify({
+        tradition: "not-a-tradition",
+        bride: { nakshatraId: "rohini", pada: 1, rasiId: "rishabha" },
+        groom: { nakshatraId: "pushya", pada: 1, rasiId: "kataka" },
+      }),
+    }));
+    expect(match.status).toBe(400);
+  });
+
+  it("computes a nakshatra and a bilingual match", async () => {
+    const { app, dev } = await testApp();
+    const placed = await app.request("/api/v1/nakshatra?lang=ta", auth(dev, {
+      method: "POST",
+      body: JSON.stringify({
+        date: "1990-08-15",
+        time: "10:30",
+        latitude: 13.0827,
+        longitude: 80.2707,
+        timezone: "Asia/Kolkata",
+        placeName: "Chennai",
+      }),
+    }));
+    expect(placed.status).toBe(200);
+    const placement = await bodyOf<{ nakshatra: { id: string }; pada: number; rasi: { name: string }; offset: string }>(placed);
+    expect(placement.nakshatra.id).toBe("rohini");
+    expect(placement.pada).toBe(3);
+    expect(placement.rasi.name).toBe("ரிஷபம்");
+    expect(placement.offset).toBe("+05:30");
+
+    const matched = await app.request("/api/v1/match", auth(dev, {
+      method: "POST",
+      body: JSON.stringify({
+        tradition: "tamil-nadu",
+        lang: "en",
+        bride: { nakshatraId: "rohini", pada: 1, rasiId: "rishabha" },
+        groom: {
+          birth: {
+            date: "1990-08-15",
+            time: "10:30",
+            latitude: 13.0827,
+            longitude: 80.2707,
+            timezone: "Asia/Kolkata",
+          },
+        },
+      }),
+    }));
+    expect(matched.status).toBe(200);
+    const report = await bodyOf<{
+      tradition: { id: string };
+      groom: { nakshatra: { id: string } };
+      checks: { explanation: string }[];
+      doshas: { id: string; level: string }[];
+    }>(matched);
+    expect(report.tradition.id).toBe("tamil-nadu");
+    expect(report.groom.nakshatra.id).toBe("rohini");
+    expect(report.checks).toHaveLength(10);
+    expect(report.checks[0].explanation.length).toBeGreaterThan(20);
+    expect(report.doshas.find((d) => d.id === "chevvai")?.level).toBe("unavailable");
+  });
+
+  it("rate limits a key", async () => {
+    const { app, token } = await testApp(2);
+    const body = JSON.stringify({ lang: "en" });
+    const first = await app.request("/api/v1/nakshatras", auth(token, { method: "GET" }));
+    const second = await app.request("/api/v1/nakshatras", auth(token));
+    const third = await app.request("/api/v1/nakshatras", auth(token));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(third.status).toBe(429);
+    expect((await bodyOf<{ error: { code: string } }>(third)).error.code).toBe("rate_limited");
+    void body;
+  });
+
+  it("falls back to the city list when geocoding fails", async () => {
+    const store = new MemoryKeyStore();
+    await store.seedDevKey();
+    const app = createApp({
+      store,
+      fetchImpl: (async () => {
+        throw new Error("offline");
+      }) as typeof fetch,
+    });
+    const response = await app.request("/api/v1/places?q=jaffna", auth(DEV_TOKEN));
+    const body = await bodyOf<{ places: { name: string; timezone: string }[] }>(response);
+    expect(body.places[0].name).toBe("Jaffna");
+    expect(body.places[0].timezone).toBe("Asia/Colombo");
+  });
+});
