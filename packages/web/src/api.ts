@@ -1,3 +1,35 @@
+/** Worker origin for the Pages build. Empty means same-origin `/api/v1` (the Worker-hosted site). */
+export function apiBase(): string {
+  const configured = import.meta.env.VITE_API_BASE;
+  if (configured == null) return "";
+  return configured.trim().replace(/\/$/, "");
+}
+
+export function apiUrl(path: string): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${apiBase()}${suffix}`;
+}
+
+/** Vite base without a trailing slash. Empty when the site is served at the host root. */
+export function siteBase(): string {
+  const base = import.meta.env.BASE_URL || "/";
+  if (base === "/") return "";
+  return base.replace(/\/$/, "");
+}
+
+/** In-app path such as `/` or `/result?x=1`, prefixed for GitHub Pages. */
+export function appHref(path: string): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${siteBase()}${suffix}`;
+}
+
+export function isResultHref(href: string): boolean {
+  const path = href.split("?")[0] || "/";
+  const base = siteBase();
+  const rest = !base ? path : path === base ? "/" : path.startsWith(`${base}/`) ? path.slice(base.length) : path;
+  return rest === "/result" || rest.startsWith("/result/");
+}
+
 export class ApiError extends Error {
   status: number;
   fields?: Record<string, string>;
@@ -9,7 +41,7 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
       "content-type": "application/json",

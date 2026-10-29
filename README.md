@@ -2,7 +2,7 @@
 
 Vinmeen is a thirumana porutham app for Tamil families everywhere: India, Sri Lanka, Malaysia, Singapore, the Gulf, Europe, the UK, Canada, the United States, Australia, and anywhere else. **Porutham / பொருத்தம்** is the match itself. Nothing is stored on a server except hashed API keys.
 
-The browser app calls a versioned API (`/api/v1`). Both ship as one Cloudflare Worker: the API is [Hono](https://hono.dev), and the pages are static assets from Vite.
+The browser app calls a versioned API (`/api/v1`). Both ship as one Cloudflare Worker: the API is [Hono](https://hono.dev), and the pages are static assets from Vite. The same web build is also published to GitHub Pages at [https://vgnshlvnz.github.io/porutham/](https://vgnshlvnz.github.io/porutham/).
 
 ## Run it locally
 
@@ -17,7 +17,7 @@ npm run dev
 - API and docs: [http://127.0.0.1:8787/api/v1/docs](http://127.0.0.1:8787/api/v1/docs)
 - OpenAPI: [http://127.0.0.1:8787/api/v1/openapi.json](http://127.0.0.1:8787/api/v1/openapi.json)
 
-The site calls `/api/v1` on the same host with no API key. Third-party apps still send `X-Api-Key`. Local wrangler dev also seeds `vnm_dev_local_key` until `ENVIRONMENT` is `production`.
+The Worker-hosted site calls `/api/v1` on the same host with no API key (`VITE_API_BASE` empty). The GitHub Pages build sets `VITE_API_BASE` to the Worker and Vite `base` to `/porutham/`. Third-party apps still send `X-Api-Key`. Local wrangler dev also seeds `vnm_dev_local_key` until `ENVIRONMENT` is `production`.
 
 On first API start, apply the local D1 migration once:
 
@@ -81,7 +81,9 @@ Years outside 1800–2100 are rejected.
 
 ## API
 
-Calculation routes accept either an issued `X-Api-Key` / `Authorization: Bearer`, or no key when the browser is calling this same host (`Sec-Fetch-Site: same-origin` and a matching `Origin`). Same-origin calls are limited to 60 a minute per IP. A copied `Origin` header is not a secret; the IP limit is what contains scripted use. Other websites cannot call without a key, because the browser sets `Sec-Fetch-Site: cross-site` and script cannot change it.
+Calculation routes accept either an issued `X-Api-Key` / `Authorization: Bearer`, or no key when the browser is calling this same host (`Sec-Fetch-Site: same-origin` and a matching `Origin`), or no key when the `Origin` is listed in `FIRST_PARTY_ORIGINS`. Production lists `https://vgnshlvnz.github.io`, so the Pages site is treated like the site on this host, including the cross-site `Sec-Fetch-Site` a browser sends from GitHub Pages. Those calls share the same limit of 60 a minute per IP. A copied `Origin` header is not a secret; the IP limit is what contains scripted use. Other websites cannot call without a key.
+
+Allowlisted origins, this host, and local loopback dev receive `Access-Control-Allow-Origin` set to their own origin, including on `OPTIONS` preflight. Every other origin still receives `Access-Control-Allow-Origin: *`, so an API-key caller in another browser app keeps working cross-origin. Preflight allows `GET`, `POST`, and `OPTIONS`, and the `Content-Type`, `X-Api-Key`, and `Authorization` headers.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
@@ -98,7 +100,7 @@ Calculation routes accept either an issued `X-Api-Key` / `Authorization: Bearer`
 | POST | `/api/v1/nakshatra?lang=` | yes | Moon nakshatra from birth details |
 | POST | `/api/v1/match` | yes | Porutham for a pair |
 
-Errors look like `{ "error": { "code", "message", "fields" } }`. Issued keys are limited to 60 requests a minute (600 for the local dev key). The same-origin site is limited to 60 a minute per IP. Counts live in memory or in D1. If the Worker has a rate-limiting binding, that limit is applied as well.
+Errors look like `{ "error": { "code", "message", "fields" } }`. Issued keys are limited to 60 requests a minute (600 for the local dev key). First-party web calls — this host and `FIRST_PARTY_ORIGINS` — are limited to 60 a minute per IP. Counts live in memory or in D1. If the Worker has a rate-limiting binding, that limit is applied as well.
 
 ### curl
 
@@ -150,7 +152,17 @@ npm run build
 npm run deploy -w vinmeen-api
 ```
 
-`npm run deploy` from the repo root builds the site and runs `wrangler deploy`. Use `--env production` when you want `ENVIRONMENT=production` (no seeded dev key). The Worker is named **vinmeen**. It serves `/api/*` and the Vite assets for everything else, at `https://vinmeen.rvigneshwaran1103.workers.dev`. `npm run dev` is the split local setup (Vite on 4321, Wrangler on 8787). The dev proxy is treated as first-party because both sides are loopback and `ENVIRONMENT` is not `production`.
+`npm run deploy` from the repo root builds the site and runs `wrangler deploy`. Use `--env production` when you want `ENVIRONMENT=production` (no seeded dev key) and `FIRST_PARTY_ORIGINS=https://vgnshlvnz.github.io`. The Worker is named **vinmeen**. It serves `/api/*` and the Vite assets for everything else, at `https://vinmeen.rvigneshwaran1103.workers.dev`. That asset build leaves `VITE_API_BASE` empty and Vite `base` at `/`. `npm run dev` is the split local setup (Vite on 4321, Wrangler on 8787). The dev proxy is treated as first-party because both sides are loopback and `ENVIRONMENT` is not `production`.
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` builds `packages/web` on every push to `main` and publishes `dist-pages` to the `gh-pages` branch with [peaceiris/actions-gh-pages](https://github.com/peaceiris/actions-gh-pages). GitHub serves that branch at `https://vgnshlvnz.github.io/porutham/` without a Pages setting change. The build sets `VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev` and Vite `base` to `/porutham/`, so scripts, icons, `manifest.webmanifest`, and the font files resolve under that path. The “API docs” link points at the Worker’s `/api/v1/docs`. `/result` is a client-side route, so the build also writes `404.html` (a copy of `index.html`) and `.nojekyll`.
+
+Build it locally with:
+
+```bash
+VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev npm run build:pages -w vinmeen-web
+```
 
 Create these resources:
 
@@ -159,15 +171,15 @@ Create these resources:
 3. A rate limiting binding `RATE_LIMITER`, namespace id `1001`, 60 requests / 60 seconds. Wrangler creates it from `wrangler.jsonc`. The app still counts in D1 if the binding is absent.
 4. Outbound fetch allowed to `geocoding-api.open-meteo.com` if your account restricts egress.
 
-`env.production` sets `ENVIRONMENT` to `production`, so the dev key is not seeded. The public site does not embed an API key. Third-party apps issue their own with `POST /api/v1/keys`.
+`env.production` sets `ENVIRONMENT` to `production` and `FIRST_PARTY_ORIGINS` to `https://vgnshlvnz.github.io`, so the dev key is not seeded and the Pages origin can call without a key. The public site does not embed an API key. Third-party apps issue their own with `POST /api/v1/keys`.
 
-GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflows/deploy.yml` is manual (`workflow_dispatch`) and needs `CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`. It does not run unless you start it.
+GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflows/pages.yml` publishes the web app to GitHub Pages on pushes to `main`. `.github/workflows/deploy.yml` is manual (`workflow_dispatch`) and needs `CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`. It does not run unless you start it. There are no new D1 migrations beyond `packages/api/migrations/0001_init.sql`.
 
 ## Project layout
 
 - `packages/engine` — stars, rulesets, Lahiri Moon, time zones. No Cloudflare or DOM types.
 - `packages/api` — Hono Worker, OpenAPI, key store (`MemoryKeyStore` and `D1KeyStore`).
-- `packages/web` — Vite + React. Talks only to the API.
+- `packages/web` — Vite + React. Talks only to the API. `VITE_API_BASE` defaults to same-origin; the Pages build points it at the Worker.
 
 ## Tests
 

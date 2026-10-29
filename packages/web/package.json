@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4321",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build:pages": "VITE_BASE=/porutham/ tsc -p tsconfig.json --noEmit && VITE_BASE=/porutham/ vite build --outDir dist-pages && cp dist-pages/index.html dist-pages/404.html && touch dist-pages/.nojekyll",
     "icons": "node scripts/render-icons.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4321"
   },

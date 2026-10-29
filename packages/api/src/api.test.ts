@@ -155,6 +155,72 @@ describe("Vinmeen API", () => {
     expect(proxied.status).toBe(200);
   });
 
+  it("treats FIRST_PARTY_ORIGINS like the site on this host", async () => {
+    const store = new MemoryKeyStore();
+    const app = createApp({
+      store,
+      environment: "production",
+      firstPartyLimit: 2,
+      firstPartyOrigins: "https://vgnshlvnz.github.io, https://preview.example/ , not a url,",
+    });
+    const url = "https://vinmeen.rvigneshwaran1103.workers.dev/api/v1/nakshatras";
+    const pages = {
+      origin: "https://vgnshlvnz.github.io",
+      "sec-fetch-site": "cross-site",
+      "cf-connecting-ip": "203.0.113.10",
+    };
+    const first = await app.request(url, { headers: pages });
+    const second = await app.request(url, { headers: pages });
+    const third = await app.request(url, { headers: pages });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("access-control-allow-origin")).toBe("https://vgnshlvnz.github.io");
+    expect(first.headers.get("vary")).toMatch(/Origin/);
+    expect(second.status).toBe(200);
+    expect(third.status).toBe(429);
+
+    const otherIp = await app.request(url, {
+      headers: { ...pages, "cf-connecting-ip": "203.0.113.11" },
+    });
+    expect(otherIp.status).toBe(200);
+
+    const preview = await app.request(url, {
+      headers: { origin: "https://preview.example", "sec-fetch-site": "cross-site", "cf-connecting-ip": "203.0.113.12" },
+    });
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("access-control-allow-origin")).toBe("https://preview.example");
+
+    const lookalike = await app.request(url, {
+      headers: { origin: "https://vgnshlvnz.github.io.evil.example", "sec-fetch-site": "cross-site" },
+    });
+    expect(lookalike.status).toBe(401);
+    expect(lookalike.headers.get("access-control-allow-origin")).toBe("*");
+
+    const preflight = await app.request(url, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://vgnshlvnz.github.io",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("https://vgnshlvnz.github.io");
+    expect(preflight.headers.get("access-control-allow-methods")).toMatch(/POST/);
+    expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("content-type");
+
+    const foreignPreflight = await app.request(url, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://apps.example",
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "x-api-key, content-type",
+      },
+    });
+    expect(foreignPreflight.status).toBe(204);
+    expect(foreignPreflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(foreignPreflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("x-api-key");
+  });
+
   it("still requires a key for a third-party caller", async () => {
     const { app, dev } = await testApp();
     const url = "https://vinmeen.example/api/v1/nakshatras";
@@ -162,6 +228,7 @@ describe("Vinmeen API", () => {
     expect(denied.status).toBe(401);
     const allowed = await app.request(url, auth(dev, { headers: { origin: "https://apps.example", "sec-fetch-site": "cross-site" } }));
     expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe("*");
   });
 
   it("falls back to the city list when geocoding fails", async () => {

@@ -5,6 +5,8 @@ export interface Env {
   DB?: D1Database;
   RATE_LIMITER?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   ENVIRONMENT?: string;
+  /** Comma-separated browser origins that may call the API without a key. */
+  FIRST_PARTY_ORIGINS?: string;
   ASSETS?: { fetch: (request: Request) => Promise<Response> };
 }
 
@@ -18,6 +20,7 @@ export default {
       store,
       environment: env.ENVIRONMENT,
       rateLimiter: env.RATE_LIMITER,
+      firstPartyOrigins: env.FIRST_PARTY_ORIGINS,
     });
     if (url.pathname.startsWith("/api/")) return app.fetch(request);
     if (env.ASSETS) return env.ASSETS.fetch(request);
