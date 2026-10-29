@@ -32,12 +32,12 @@ function randomToken(): string {
 
 interface MemoryRow extends ApiKeyRecord {
   hash: string;
-  windows: Map<number, number>;
 }
 
 export class MemoryKeyStore implements KeyStore {
   private rows = new Map<string, MemoryRow>();
   private byHash = new Map<string, MemoryRow>();
+  private buckets = new Map<string, Map<number, number>>();
 
   async seedDevKey(): Promise<void> {
     const hash = await sha256(DEV_TOKEN);
@@ -50,7 +50,6 @@ export class MemoryKeyStore implements KeyStore {
       email: "dev@vinmeen.local",
       rateLimit: 600,
       createdAt: new Date(0).toISOString(),
-      windows: new Map(),
     };
     this.rows.set(row.id, row);
     this.byHash.set(hash, row);
@@ -67,7 +66,6 @@ export class MemoryKeyStore implements KeyStore {
       email: input.email,
       rateLimit: input.rateLimit ?? 60,
       createdAt: new Date().toISOString(),
-      windows: new Map(),
     };
     this.rows.set(row.id, row);
     this.byHash.set(hash, row);
@@ -79,10 +77,13 @@ export class MemoryKeyStore implements KeyStore {
     return row ? publicRow(row) : null;
   }
 
-  async consume(keyId: string, limit: number, nowMs: number) {
-    const row = this.rows.get(keyId);
-    if (!row) return { ok: false, remaining: 0, retryAfter: WINDOW_SEC };
-    return bump(row.windows, limit, nowMs);
+  async consume(bucketId: string, limit: number, nowMs: number) {
+    let windows = this.buckets.get(bucketId);
+    if (!windows) {
+      windows = new Map();
+      this.buckets.set(bucketId, windows);
+    }
+    return bump(windows, limit, nowMs);
   }
 }
 

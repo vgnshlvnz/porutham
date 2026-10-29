@@ -15,11 +15,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-        env:
-          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/api
-          command: deploy
+          command: deploy --env production

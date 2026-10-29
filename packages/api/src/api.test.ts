@@ -133,6 +133,37 @@ describe("Vinmeen API", () => {
     void body;
   });
 
+  it("allows the same-origin site without a key and rejects other sites", async () => {
+    const store = new MemoryKeyStore();
+    const app = createApp({ store, environment: "production", firstPartyLimit: 2 });
+    const url = "https://vinmeen.rvigneshwaran1103.workers.dev/api/v1/nakshatras";
+    const same = {
+      origin: "https://vinmeen.rvigneshwaran1103.workers.dev",
+      "sec-fetch-site": "same-origin",
+    };
+    expect((await app.request(url, { headers: same })).status).toBe(200);
+    expect((await app.request(url, { headers: same })).status).toBe(200);
+    expect((await app.request(url, { headers: same })).status).toBe(429);
+    const cross = await app.request(url, {
+      headers: { origin: "https://other.example", "sec-fetch-site": "cross-site" },
+    });
+    expect(cross.status).toBe(401);
+    const dev = createApp({ store, environment: "development" });
+    const proxied = await dev.request("http://127.0.0.1:8787/api/v1/nakshatras", {
+      headers: { origin: "http://127.0.0.1:4321", "sec-fetch-site": "same-origin" },
+    });
+    expect(proxied.status).toBe(200);
+  });
+
+  it("still requires a key for a third-party caller", async () => {
+    const { app, dev } = await testApp();
+    const url = "https://vinmeen.example/api/v1/nakshatras";
+    const denied = await app.request(url, { headers: { origin: "https://apps.example", "sec-fetch-site": "cross-site" } });
+    expect(denied.status).toBe(401);
+    const allowed = await app.request(url, auth(dev, { headers: { origin: "https://apps.example", "sec-fetch-site": "cross-site" } }));
+    expect(allowed.status).toBe(200);
+  });
+
   it("falls back to the city list when geocoding fails", async () => {
     const store = new MemoryKeyStore();
     await store.seedDevKey();

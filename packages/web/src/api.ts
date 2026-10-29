@@ -1,5 +1,3 @@
-const API_KEY = import.meta.env.VITE_API_KEY || "vnm_dev_local_key";
-
 export class ApiError extends Error {
   status: number;
   fields?: Record<string, string>;
@@ -15,7 +13,6 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-api-key": API_KEY,
       ...(init.headers ?? {}),
     },
   });

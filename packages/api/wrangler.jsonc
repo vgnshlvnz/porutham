@@ -1,12 +1,18 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "vinmeen-api",
+  "name": "vinmeen",
+  "account_id": "e5a00ea1265a62494fdaa879979a8ad2",
   "main": "src/index.ts",
   "compatibility_date": "2026-03-01",
+  "compatibility_flags": [],
   "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
@@ -17,7 +23,7 @@
     {
       "binding": "DB",
       "database_name": "vinmeen",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "56054812-866d-4d28-a9a1-ad226e3d9845",
       "migrations_dir": "migrations"
     }
   ],
@@ -30,13 +36,30 @@
   ],
   "env": {
     "production": {
-      "name": "vinmeen-api",
-      "vars": { "ENVIRONMENT": "production" },
+      "name": "vinmeen",
+      "account_id": "e5a00ea1265a62494fdaa879979a8ad2",
+      "main": "src/index.ts",
+      "compatibility_date": "2026-03-01",
+      "compatibility_flags": [],
+      "workers_dev": true,
+      "observability": {
+        "enabled": true
+      },
+      "assets": {
+        "directory": "../web/dist",
+        "binding": "ASSETS",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*"]
+      },
+      "vars": {
+        "ENVIRONMENT": "production"
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "vinmeen",
-          "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+          "database_id": "56054812-866d-4d28-a9a1-ad226e3d9845",
           "migrations_dir": "migrations"
         }
       ],

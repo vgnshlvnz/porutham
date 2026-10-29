@@ -23,7 +23,11 @@ export interface AppOptions {
   rateLimiter?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   fetchImpl?: typeof fetch;
   now?: () => number;
+  /** Requests per minute for the same-origin web app, which does not send an API key. */
+  firstPartyLimit?: number;
 }
+
+const FIRST_PARTY_LIMIT = 60;
 
 const issueHits = new Map<string, { start: number; count: number }>();
 
@@ -77,22 +81,25 @@ export function createApp(options: AppOptions) {
       return next();
     }
     const token = bearer(c.req.header("x-api-key") ?? c.req.header("authorization"));
-    if (!token) return problem(c, 401, "unauthorized", "Send X-Api-Key or Authorization: Bearer. Issue a key with POST /api/v1/keys.");
-    const key = await options.store.authenticate(token);
-    if (!key) return problem(c, 401, "unauthorized", "That API key was not recognised.");
-    if (options.rateLimiter) {
-      const limited = await options.rateLimiter.limit({ key: key.id });
-      if (!limited.success) return problem(c, 429, "rate_limited", "Too many requests for this key.");
+    if (token) {
+      const key = await options.store.authenticate(token);
+      if (!key) return problem(c, 401, "unauthorized", "That API key was not recognised.");
+      const allowed = await enforceLimit(c, options, key.id, key.rateLimit, now());
+      if (!allowed) return allowedResponse(c);
+      return next();
     }
-    const bucket = await options.store.consume(key.id, key.rateLimit, now());
-    c.header("X-RateLimit-Limit", String(key.rateLimit));
-    c.header("X-RateLimit-Remaining", String(bucket.remaining));
-    if (!bucket.ok) {
-      c.header("Retry-After", String(bucket.retryAfter));
-      return problem(c, 429, "rate_limited", "Too many requests for this key.", undefined, bucket.retryAfter);
+    if (isFirstParty(c.req.raw, options.environment)) {
+      const limit = options.firstPartyLimit ?? FIRST_PARTY_LIMIT;
+      const allowed = await enforceLimit(c, options, `web:${clientIp(c.req.raw)}`, limit, now());
+      if (!allowed) return allowedResponse(c);
+      return next();
     }
-    c.set("apiKeyId" as never, key.id);
-    return next();
+    return problem(
+      c,
+      401,
+      "unauthorized",
+      "Send X-Api-Key or Authorization: Bearer. The Vinmeen site on this host can call the API without a key. Issue a key with POST /api/v1/keys for any other app.",
+    );
   });
 
   app.get("/api/v1/traditions", (c) => {
@@ -297,6 +304,67 @@ function langOf(value: string | undefined): Lang {
   return value === "ta" ? "ta" : "en";
 }
 
+async function enforceLimit(
+  c: { header: (name: string, value: string) => void },
+  options: AppOptions,
+  bucketId: string,
+  limit: number,
+  nowMs: number,
+): Promise<boolean> {
+  if (options.rateLimiter) {
+    try {
+      const limited = await options.rateLimiter.limit({ key: bucketId });
+      if (!limited.success) return false;
+    } catch {
+      // The platform limiter is optional. D1 or memory still counts.
+    }
+  }
+  const bucket = await options.store.consume(bucketId, limit, nowMs);
+  c.header("X-RateLimit-Limit", String(limit));
+  c.header("X-RateLimit-Remaining", String(bucket.remaining));
+  if (!bucket.ok) {
+    c.header("Retry-After", String(bucket.retryAfter));
+    return false;
+  }
+  return true;
+}
+
+function allowedResponse(c: { json: (body: unknown, status?: number) => Response; header: (name: string, value: string) => void }) {
+  return problem(c, 429, "rate_limited", "Too many requests. Wait a minute and try again.");
+}
+
+function clientIp(request: Request): string {
+  const cf = request.headers.get("cf-connecting-ip");
+  if (cf) return cf;
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown";
+  return "local";
+}
+
+function isFirstParty(request: Request, environment: string | undefined): boolean {
+  const url = new URL(request.url);
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite === "cross-site" || fetchSite === "same-site") return false;
+  const origin = request.headers.get("origin");
+  if (!origin) return fetchSite === "same-origin";
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+  const sameHost = originUrl.host === url.host;
+  const localDev =
+    environment !== "production" && isLoopback(originUrl.hostname) && isLoopback(url.hostname);
+  if (!sameHost && !localDev) return false;
+  if (fetchSite && fetchSite !== "same-origin") return false;
+  return true;
+}
+
+function isLoopback(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function bearer(header: string | undefined): string {
   if (!header) return "";
   const trimmed = header.trim();
@@ -444,7 +512,7 @@ function docsHtml(): string {
 <body>
   <header>
     <h1>Vinmeen API</h1>
-    <p>விண்மீன் · Porutham for Tamil families. Authenticate with <code>X-Api-Key</code>. The local key is <code>${DEV_TOKEN}</code>. Issue your own with <code>POST /api/v1/keys</code>.</p>
+    <p>விண்மீன் · Porutham for Tamil families. The site on this host calls the API with no key. Any other app sends <code>X-Api-Key</code>. Issue one with <code>POST /api/v1/keys</code>. Local wrangler dev also accepts <code>${DEV_TOKEN}</code> until you run in production.</p>
     <pre>curl -s -H "X-Api-Key: ${DEV_TOKEN}" \\
   -H "Content-Type: application/json" \\
   -d '{"date":"1990-08-15","time":"10:30","latitude":13.0827,"longitude":80.2707,"timezone":"Asia/Kolkata"}' \\

@@ -17,7 +17,7 @@ npm run dev
 - API and docs: [http://127.0.0.1:8787/api/v1/docs](http://127.0.0.1:8787/api/v1/docs)
 - OpenAPI: [http://127.0.0.1:8787/api/v1/openapi.json](http://127.0.0.1:8787/api/v1/openapi.json)
 
-The local web key is `vnm_dev_local_key`. It is seeded only when `ENVIRONMENT` is not `production`.
+The site calls `/api/v1` on the same host with no API key. Third-party apps still send `X-Api-Key`. Local wrangler dev also seeds `vnm_dev_local_key` until `ENVIRONMENT` is `production`.
 
 On first API start, apply the local D1 migration once:
 
@@ -81,7 +81,7 @@ Years outside 1800–2100 are rejected.
 
 ## API
 
-All calculation routes need `X-Api-Key` or `Authorization: Bearer`.
+Calculation routes accept either an issued `X-Api-Key` / `Authorization: Bearer`, or no key when the browser is calling this same host (`Sec-Fetch-Site: same-origin` and a matching `Origin`). Same-origin calls are limited to 60 a minute per IP. A copied `Origin` header is not a secret; the IP limit is what contains scripted use. Other websites cannot call without a key, because the browser sets `Sec-Fetch-Site: cross-site` and script cannot change it.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
@@ -98,7 +98,7 @@ All calculation routes need `X-Api-Key` or `Authorization: Bearer`.
 | POST | `/api/v1/nakshatra?lang=` | yes | Moon nakshatra from birth details |
 | POST | `/api/v1/match` | yes | Porutham for a pair |
 
-Errors look like `{ "error": { "code", "message", "fields" } }`. Rate limit is 60 requests a minute per issued key (600 for the local web key), counted in memory or in D1. If the Worker has a rate-limiting binding, that limit is applied as well.
+Errors look like `{ "error": { "code", "message", "fields" } }`. Issued keys are limited to 60 requests a minute (600 for the local dev key). The same-origin site is limited to 60 a minute per IP. Counts live in memory or in D1. If the Worker has a rate-limiting binding, that limit is applied as well.
 
 ### curl
 
@@ -146,25 +146,20 @@ Paste the printed database id over `database_id` in `packages/api/wrangler.jsonc
 
 ```bash
 npm run migrate:remote -w vinmeen-api
-# Build the site with the key the browser will send.
-# Issue one first against the deployed API, or create it after the first deploy
-# and rebuild.
-VITE_API_KEY=vnm_your_public_web_key npm run build
+npm run build
 npm run deploy -w vinmeen-api
 ```
 
-`npm run deploy` from the repo root builds the site and runs `wrangler deploy`.
-
-The Worker named **vinmeen-api** serves `/api/*` and the Vite assets for everything else. `npm run dev` is the split local setup (Vite on 4321, Wrangler on 8787). After deploy, both share one origin, so the pages call `/api/v1` on the same host.
+`npm run deploy` from the repo root builds the site and runs `wrangler deploy`. Use `--env production` when you want `ENVIRONMENT=production` (no seeded dev key). The Worker is named **vinmeen**. It serves `/api/*` and the Vite assets for everything else, at `https://vinmeen.rvigneshwaran1103.workers.dev`. `npm run dev` is the split local setup (Vite on 4321, Wrangler on 8787). The dev proxy is treated as first-party because both sides are loopback and `ENVIRONMENT` is not `production`.
 
 Create these resources:
 
-1. A Workers script, created for you by `wrangler deploy` (`vinmeen-api`).
+1. A Workers script named `vinmeen`, created by `wrangler deploy --env production`. The workers.dev URL is `https://vinmeen.rvigneshwaran1103.workers.dev`.
 2. A D1 database named `vinmeen`, binding `DB`.
 3. A rate limiting binding `RATE_LIMITER`, namespace id `1001`, 60 requests / 60 seconds. Wrangler creates it from `wrangler.jsonc`. The app still counts in D1 if the binding is absent.
 4. Outbound fetch allowed to `geocoding-api.open-meteo.com` if your account restricts egress.
 
-Set `ENVIRONMENT` to `production` (already set under `env.production`) so the dev key is not seeded. Issue a real key, rebuild the web with `VITE_API_KEY`, and deploy again. The key in the browser is a publishable demo key; give third-party apps their own keys and a tighter limit.
+`env.production` sets `ENVIRONMENT` to `production`, so the dev key is not seeded. The public site does not embed an API key. Third-party apps issue their own with `POST /api/v1/keys`.
 
 GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflows/deploy.yml` is manual (`workflow_dispatch`) and needs `CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`. It does not run unless you start it.
 
