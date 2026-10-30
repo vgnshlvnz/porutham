@@ -14,7 +14,7 @@ import {
   type Lang,
   type PersonInput,
 } from "vinmeen-engine";
-import { type KeyStore } from "./store.js";
+import { SHARE_TOKEN_RE, SHARE_TTL_MS, type KeyStore } from "./store.js";
 
 export interface AppOptions {
   store: KeyStore;
@@ -26,6 +26,8 @@ export interface AppOptions {
   firstPartyLimit?: number;
   /** Comma-separated browser origins allowed to call the API, besides this host. */
   firstPartyOrigins?: string;
+  /** How long a one-time share can be opened. Defaults to 7 days. */
+  shareTtlMs?: number;
 }
 
 const FIRST_PARTY_LIMIT = 60;
@@ -235,6 +237,28 @@ export function createApp(options: AppOptions) {
     } catch (error) {
       return fromEngine(c, error);
     }
+  });
+
+  app.post("/api/v1/shares", async (c) => {
+    const body = await readJson(c.req.raw);
+    if (!body.ok) return problem(c, 400, "validation_error", "Request body must be JSON.");
+    const redacted = redactShareReport(body.value);
+    if (!redacted.ok) return problem(c, 400, "validation_error", redacted.message, redacted.fields);
+    const created = await options.store.createShare(redacted.snapshot, now(), options.shareTtlMs ?? SHARE_TTL_MS);
+    c.header("Cache-Control", "no-store");
+    return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
+  });
+
+  app.get("/api/v1/shares/:token", async (c) => {
+    const token = c.req.param("token");
+    if (!SHARE_TOKEN_RE.test(token)) return problem(c, 404, "not_found", "No such share.");
+    const claimed = await options.store.consumeShare(token, now());
+    c.header("Cache-Control", "no-store");
+    if (claimed.status === "ok") return c.json({ report: claimed.report, expiresAt: claimed.expiresAt });
+    if (claimed.status === "gone") {
+      return problem(c, 410, "share_gone", "This link has already been used or it has expired.");
+    }
+    return problem(c, 404, "not_found", "No such share.");
   });
 
   app.notFound((c) => {
@@ -456,6 +480,175 @@ function numberField(value: unknown, key: string): number | undefined {
   const raw = (value as Record<string, unknown>)[key];
   const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
   return Number.isFinite(n) ? n : undefined;
+}
+
+const SNAPSHOT_LIMIT = 80_000;
+
+interface ShareSnapshot {
+  tradition: { id: string; en: string; ta: string; confidence: string; summary: { en: string; ta: string } };
+  lang: Lang;
+  score: number;
+  maxScore: number;
+  verdict: string;
+  verdictText: string;
+  checks: ShareCheck[];
+  doshas: ShareDosha[];
+  notes: string[];
+  disclaimer: string;
+  bride: SharePerson;
+  groom: SharePerson;
+}
+
+interface SharePerson {
+  name?: string;
+  nakshatra: { id: string; en: string; ta: string };
+  pada: number;
+  rasi: { id: string; en: string; ta: string; western: string };
+  source: "birth" | "star";
+}
+
+interface ShareCheck {
+  id: string;
+  name: string;
+  meaning: string;
+  level: string;
+  points: number;
+  maxPoints: number;
+  critical: boolean;
+  explanation: string;
+}
+
+interface ShareDosha {
+  id: string;
+  name: string;
+  level: string;
+  critical: boolean;
+  explanation: string;
+}
+
+function redactShareReport(value: unknown): { ok: true; snapshot: ShareSnapshot } | { ok: false; message: string; fields?: Record<string, string> } {
+  if (!value || typeof value !== "object") return { ok: false, message: "Send the match report." };
+  const report = (value as { report?: unknown }).report;
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return { ok: false, message: "Send the match report.", fields: { report: "Required." } };
+  }
+  const row = report as Record<string, unknown>;
+  const tradition = redactTradition(row.tradition);
+  const bride = redactPerson(row.bride);
+  const groom = redactPerson(row.groom);
+  const verdictText = clip(row.verdictText, 2000);
+  if (!tradition || !bride || !groom || !verdictText || !Array.isArray(row.checks)) {
+    return { ok: false, message: "The report is incomplete.", fields: { report: "tradition, bride, groom, checks, and verdict are required." } };
+  }
+  const snapshot: ShareSnapshot = {
+    tradition,
+    lang: row.lang === "ta" ? "ta" : "en",
+    score: finite(row.score),
+    maxScore: finite(row.maxScore),
+    verdict: clip(row.verdict, 40) ?? "",
+    verdictText,
+    checks: row.checks.slice(0, 40).map(redactCheck).filter((check): check is ShareCheck => check !== null),
+    doshas: Array.isArray(row.doshas) ? row.doshas.slice(0, 20).map(redactDosha).filter((dosha): dosha is ShareDosha => dosha !== null) : [],
+    notes: Array.isArray(row.notes) ? row.notes.map((note) => clip(note, 500)).filter((note): note is string => !!note).slice(0, 20) : [],
+    disclaimer: clip(row.disclaimer, 2000) ?? "",
+    bride,
+    groom,
+  };
+  if (JSON.stringify(snapshot).length > SNAPSHOT_LIMIT) return { ok: false, message: "That report is too large to share." };
+  return { ok: true, snapshot };
+}
+
+function redactTradition(value: unknown): ShareSnapshot["tradition"] | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = clip(row.id, 80);
+  const en = clip(row.en, 120);
+  const ta = clip(row.ta, 120);
+  if (!id || !en || !ta) return null;
+  const summary = row.summary && typeof row.summary === "object" ? (row.summary as Record<string, unknown>) : {};
+  return {
+    id,
+    en,
+    ta,
+    confidence: row.confidence === "approximate" ? "approximate" : "documented",
+    summary: { en: clip(summary.en, 800) ?? "", ta: clip(summary.ta, 800) ?? "" },
+  };
+}
+
+function redactPerson(value: unknown): SharePerson | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const nakshatra = redactNames(row.nakshatra, false);
+  const rasi = redactNames(row.rasi, true);
+  const pada = finite(row.pada);
+  if (!nakshatra || !rasi || ![1, 2, 3, 4].includes(pada)) return null;
+  const person: SharePerson = {
+    nakshatra: { id: nakshatra.id, en: nakshatra.en, ta: nakshatra.ta },
+    pada,
+    rasi: { id: rasi.id, en: rasi.en, ta: rasi.ta, western: rasi.western ?? "" },
+    source: row.source === "birth" ? "birth" : "star",
+  };
+  const name = clip(row.name, 80);
+  if (name) person.name = name;
+  return person;
+}
+
+function redactNames(value: unknown, western: boolean): SharePerson["nakshatra"] & { western?: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = clip(row.id, 80);
+  const en = clip(row.en, 80);
+  const ta = clip(row.ta, 80);
+  if (!id || !en || !ta) return null;
+  if (!western) return { id, en, ta };
+  return { id, en, ta, western: clip(row.western, 40) ?? "" };
+}
+
+function redactCheck(value: unknown): ShareCheck | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = clip(row.id, 80);
+  const name = clip(row.name, 120);
+  const explanation = clip(row.explanation, 4000);
+  if (!id || !name || !explanation) return null;
+  return {
+    id,
+    name,
+    meaning: clip(row.meaning, 400) ?? "",
+    level: clip(row.level, 20) ?? "none",
+    points: finite(row.points),
+    maxPoints: finite(row.maxPoints),
+    critical: row.critical === true,
+    explanation,
+  };
+}
+
+function redactDosha(value: unknown): ShareDosha | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = clip(row.id, 80);
+  const name = clip(row.name, 120);
+  const explanation = clip(row.explanation, 4000);
+  if (!id || !name || !explanation) return null;
+  return {
+    id,
+    name,
+    level: clip(row.level, 20) ?? "none",
+    critical: row.critical === true,
+    explanation,
+  };
+}
+
+function clip(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, max);
+}
+
+function finite(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : 0;
 }
 
 function problem(
