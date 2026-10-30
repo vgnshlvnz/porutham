@@ -4,7 +4,7 @@ import { copy, levelLabel, type Lang } from "./i18n";
 
 const RASI_IDS = ["mesha", "rishabha", "mithuna", "kataka", "simha", "kanya", "tula", "vrischika", "dhanus", "makara", "kumbha", "meena"];
 
-interface PersonForm {
+export interface PersonForm {
   mode: "star" | "birth";
   name: string;
   nakshatraId: string;
@@ -18,7 +18,7 @@ interface PersonForm {
   kovil: string;
 }
 
-const blank = (): PersonForm => ({
+export const blank = (): PersonForm => ({
   mode: "star",
   name: "",
   nakshatraId: "",
@@ -31,8 +31,14 @@ const blank = (): PersonForm => ({
   kovil: "",
 });
 
+function initialLang(): Lang {
+  const query = new URLSearchParams(window.location.search).get("lang");
+  if (query === "en" || query === "ta") return query;
+  return localStorage.getItem("vinmeen-lang") === "ta" ? "ta" : "en";
+}
+
 export function App() {
-  const [lang, setLang] = useState<Lang>(() => (localStorage.getItem("vinmeen-lang") === "ta" ? "ta" : "en"));
+  const [lang, setLang] = useState<Lang>(initialLang);
   const [href, setHref] = useState(() => window.location.pathname + window.location.search);
   const t = copy[lang];
 
@@ -54,10 +60,13 @@ export function App() {
   }
 
   const result = isResultHref(href);
+  const search = window.location.search;
   return (
     <div className="mx-auto min-h-screen max-w-3xl px-4 pb-10 pt-4 sm:px-6">
       <Header lang={lang} setLang={setLang} t={t} go={go} />
-      {result ? <Result lang={lang} t={t} go={go} /> : <Home lang={lang} t={t} go={go} />}
+      {result
+        ? <Result key={search} search={search} lang={lang} t={t} go={go} />
+        : <Home key={search} lang={lang} setLang={setLang} t={t} go={go} />}
     </div>
   );
 }
@@ -97,16 +106,21 @@ function Logo() {
   );
 }
 
-function Home({ lang, t, go }: { lang: Lang; t: (typeof copy)[Lang]; go: (url: string) => void }) {
+function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void; t: (typeof copy)[Lang]; go: (url: string) => void }) {
   const [traditions, setTraditions] = useState<Tradition[]>([]);
   const [stars, setStars] = useState<Named[]>([]);
   const [rasis, setRasis] = useState<Named[]>([]);
   const [kovils, setKovils] = useState<Named[]>([]);
-  const [tradition, setTradition] = useState("tamil-nadu");
-  const [bride, setBride] = useState<PersonForm>(blank);
-  const [groom, setGroom] = useState<PersonForm>(blank);
+  const [seed] = useState(seedFromLocation);
+  const [tradition, setTradition] = useState(seed.tradition);
+  const [bride, setBride] = useState(seed.bride);
+  const [groom, setGroom] = useState(seed.groom);
   const [error, setError] = useState("");
   const [booting, setBooting] = useState(true);
+
+  useEffect(() => {
+    if (seed.lang) setLang(seed.lang);
+  }, [seed.lang, setLang]);
 
   useEffect(() => {
     let cancel = false;
@@ -342,7 +356,7 @@ function PersonCard(props: {
   );
 }
 
-function writePerson(params: URLSearchParams, prefix: string, form: PersonForm) {
+export function writePerson(params: URLSearchParams, prefix: string, form: PersonForm) {
   params.set(`${prefix}Mode`, form.mode);
   if (form.name) params.set(`${prefix}Name`, form.name);
   if (form.gothra) params.set(`${prefix}Gothra`, form.gothra);
@@ -361,7 +375,18 @@ function writePerson(params: URLSearchParams, prefix: string, form: PersonForm) 
   }
 }
 
-function readPerson(params: URLSearchParams, prefix: string) {
+function finiteCoord(raw: string | null): number {
+  if (raw == null || raw.trim() === "") {
+    throw new Error("Birth coordinates must be finite numbers.");
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error("Birth coordinates must be finite numbers.");
+  }
+  return value;
+}
+
+export function readPerson(params: URLSearchParams, prefix: string) {
   const mode = params.get(`${prefix}Mode`);
   const name = params.get(`${prefix}Name`) || undefined;
   const gothra = params.get(`${prefix}Gothra`) || undefined;
@@ -374,8 +399,8 @@ function readPerson(params: URLSearchParams, prefix: string) {
       birth: {
         date: params.get(`${prefix}Date`)!,
         time: params.get(`${prefix}Time`)!,
-        latitude: Number(params.get(`${prefix}Lat`)),
-        longitude: Number(params.get(`${prefix}Lon`)),
+        latitude: finiteCoord(params.get(`${prefix}Lat`)),
+        longitude: finiteCoord(params.get(`${prefix}Lon`)),
         timezone: params.get(`${prefix}Tz`)!,
         placeName: params.get(`${prefix}Place`) || undefined,
       },
@@ -391,8 +416,68 @@ function readPerson(params: URLSearchParams, prefix: string) {
   };
 }
 
-function Result({ lang, t, go }: { lang: Lang; t: (typeof copy)[Lang]; go: (url: string) => void }) {
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+export function personFormFromQuery(params: URLSearchParams, prefix: string): PersonForm {
+  const person = readPerson(params, prefix);
+  if ("birth" in person && person.birth) {
+    const placeName = person.birth.placeName ?? "";
+    return {
+      mode: "birth",
+      name: person.name ?? "",
+      nakshatraId: "",
+      pada: 1,
+      rasiId: "",
+      date: person.birth.date,
+      time: person.birth.time || "",
+      query: placeName,
+      place: {
+        name: placeName,
+        admin: "",
+        country: "",
+        latitude: person.birth.latitude,
+        longitude: person.birth.longitude,
+        timezone: person.birth.timezone,
+        source: "link",
+      },
+      gothra: person.gothra ?? "",
+      kovil: person.kovil ?? "",
+    };
+  }
+  return {
+    ...blank(),
+    name: person.name ?? "",
+    nakshatraId: person.nakshatraId ?? "",
+    pada: person.pada,
+    rasiId: person.rasiId ?? "",
+    gothra: person.gothra ?? "",
+    kovil: person.kovil ?? "",
+  };
+}
+
+function formOrBlank(params: URLSearchParams, prefix: string): PersonForm {
+  try {
+    return personFormFromQuery(params, prefix);
+  } catch {
+    return blank();
+  }
+}
+
+export function seedFromSearch(search: string): { tradition: string; lang?: Lang; bride: PersonForm; groom: PersonForm } {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const queryLang = params.get("lang");
+  return {
+    tradition: params.get("tradition") || "tamil-nadu",
+    lang: queryLang === "en" || queryLang === "ta" ? queryLang : undefined,
+    bride: formOrBlank(params, "b"),
+    groom: formOrBlank(params, "g"),
+  };
+}
+
+function seedFromLocation() {
+  return seedFromSearch(window.location.search);
+}
+
+function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeof copy)[Lang]; go: (url: string) => void }) {
+  const params = useMemo(() => new URLSearchParams(search), [search]);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
@@ -404,17 +489,33 @@ function Result({ lang, t, go }: { lang: Lang; t: (typeof copy)[Lang]; go: (url:
     if (`${window.location.pathname}${window.location.search}` !== url) {
       window.history.replaceState({}, "", url);
     }
+    let bride: ReturnType<typeof readPerson>;
+    let groom: ReturnType<typeof readPerson>;
+    try {
+      bride = readPerson(params, "b");
+      groom = readPerson(params, "g");
+    } catch (err) {
+      setReport(null);
+      setError(err instanceof Error ? err.message : t.apiDown);
+      return;
+    }
     setReport(null);
     setError("");
+    let cancel = false;
     api<Report>("/api/v1/match", {
       method: "POST",
       body: JSON.stringify({
         tradition: params.get("tradition") || "tamil-nadu",
         lang,
-        bride: readPerson(params, "b"),
-        groom: readPerson(params, "g"),
+        bride,
+        groom,
       }),
-    }).then(setReport).catch((err: unknown) => setError(err instanceof ApiError ? err.message : t.apiDown));
+    }).then((report) => {
+      if (!cancel) setReport(report);
+    }).catch((err: unknown) => {
+      if (!cancel) setError(err instanceof ApiError ? err.message : t.apiDown);
+    });
+    return () => { cancel = true; };
   }, [lang, params, t.apiDown]);
 
   async function copyLink() {
@@ -470,7 +571,11 @@ function Result({ lang, t, go }: { lang: Lang; t: (typeof copy)[Lang]; go: (url:
 
   return (
     <main>
-      <button type="button" className="text-sm text-maroon underline-offset-4 hover:underline" onClick={() => go("/")}>{t.back}</button>
+      <button type="button" className="text-sm text-maroon underline-offset-4 hover:underline" onClick={() => {
+        const next = new URLSearchParams(params);
+        next.set("lang", lang);
+        go(`/?${next.toString()}`);
+      }}>{t.back}</button>
       {error && <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-clay" role="alert">{error}</p>}
       {!report && !error && <p className="mt-6">{t.working}</p>}
       {report && (
