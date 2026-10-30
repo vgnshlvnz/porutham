@@ -14,8 +14,7 @@ import {
   type Lang,
   type PersonInput,
 } from "vinmeen-engine";
-import { openApiDocument } from "./openapi.js";
-import { DEV_TOKEN, type KeyStore } from "./store.js";
+import { type KeyStore } from "./store.js";
 
 export interface AppOptions {
   store: KeyStore;
@@ -23,15 +22,13 @@ export interface AppOptions {
   rateLimiter?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   fetchImpl?: typeof fetch;
   now?: () => number;
-  /** Requests per minute for first-party web apps, which do not send an API key. */
+  /** Requests per minute for the website, counted per IP. */
   firstPartyLimit?: number;
-  /** Comma-separated browser origins treated like this host for keyless access. */
+  /** Comma-separated browser origins allowed to call the API, besides this host. */
   firstPartyOrigins?: string;
 }
 
 const FIRST_PARTY_LIMIT = 60;
-
-const issueHits = new Map<string, { start: number; count: number }>();
 
 export function createApp(options: AppOptions) {
   const app = new Hono();
@@ -39,71 +36,37 @@ export function createApp(options: AppOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const extraOrigins = parseOriginList(options.firstPartyOrigins);
 
+  // Runs before CORS so a disallowed origin, including preflight, is a 403 with no echoed origin.
+  // A presented API key does not grant access.
+  app.use("/api/*", async (c, next) => {
+    const path = new URL(c.req.url).pathname;
+    if (path !== "/api/v1/health" && !isFirstParty(c.req.raw, options.environment, extraOrigins)) {
+      return problem(c, 403, "forbidden", "This API is private to the Vinmeen website.");
+    }
+    return next();
+  });
+
   app.use(
     "/api/*",
     cors({
       origin: (requestOrigin, c) => allowOriginHeader(requestOrigin, c.req.url, options.environment, extraOrigins),
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "X-Api-Key", "Authorization"],
+      allowHeaders: ["Content-Type"],
       maxAge: 86400,
     }),
   );
 
-  app.get("/api/v1/health", (c) => c.json({ ok: true, name: "Vinmeen API", version: "1.0.0" }));
-  app.get("/api/v1/openapi.json", (c) => c.json(openApiDocument()));
-  app.get("/api/v1/docs", (c) => c.html(docsHtml()));
-
-  app.post("/api/v1/keys", async (c) => {
-    const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "local";
-    if (!allowIssue(ip, now())) {
-      return problem(c, 429, "rate_limited", "Too many keys requested from this address. Try again in an hour.");
-    }
-    const body = await readJson(c.req.raw);
-    if (!body.ok) return problem(c, 400, "validation_error", "Request body must be JSON.");
-    const name = stringField(body.value, "name");
-    const email = stringField(body.value, "email");
-    const fields: Record<string, string> = {};
-    if (!name || name.length < 2) fields.name = "Give a name for this key.";
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fields.email = "Give a valid email address.";
-    if (Object.keys(fields).length) return problem(c, 400, "validation_error", "Check the highlighted fields.", fields);
-    const issued = await options.store.issue({ name: name!, email: email! });
-    return c.json(
-      {
-        token: issued.token,
-        key: issued.record,
-        warning: "Copy this token now. It is stored only as a hash and will not be shown again.",
-      },
-      201,
-    );
-  });
-
   app.use("/api/v1/*", async (c, next) => {
     if (c.req.method === "OPTIONS") return next();
     const path = new URL(c.req.url).pathname;
-    if (path === "/api/v1/health" || path === "/api/v1/openapi.json" || path === "/api/v1/docs" || path === "/api/v1/keys") {
-      return next();
-    }
-    const token = bearer(c.req.header("x-api-key") ?? c.req.header("authorization"));
-    if (token) {
-      const key = await options.store.authenticate(token);
-      if (!key) return problem(c, 401, "unauthorized", "That API key was not recognised.");
-      const allowed = await enforceLimit(c, options, key.id, key.rateLimit, now());
-      if (!allowed) return allowedResponse(c);
-      return next();
-    }
-    if (isFirstParty(c.req.raw, options.environment, extraOrigins)) {
-      const limit = options.firstPartyLimit ?? FIRST_PARTY_LIMIT;
-      const allowed = await enforceLimit(c, options, `web:${clientIp(c.req.raw)}`, limit, now());
-      if (!allowed) return allowedResponse(c);
-      return next();
-    }
-    return problem(
-      c,
-      401,
-      "unauthorized",
-      "Send X-Api-Key or Authorization: Bearer. The Vinmeen site on this host, and origins in FIRST_PARTY_ORIGINS, can call the API without a key. Issue a key with POST /api/v1/keys for any other app.",
-    );
+    if (path === "/api/v1/health") return next();
+    const limit = options.firstPartyLimit ?? FIRST_PARTY_LIMIT;
+    const allowed = await enforceLimit(c, options, `web:${clientIp(c.req.raw)}`, limit, now());
+    if (!allowed) return allowedResponse(c);
+    return next();
   });
+
+  app.get("/api/v1/health", (c) => c.json({ ok: true, name: "Vinmeen API", version: "1.0.0" }));
 
   app.get("/api/v1/traditions", (c) => {
     const lang = langOf(c.req.query("lang"));
@@ -366,26 +329,26 @@ function canonicalOrigin(value: string): string | null {
   }
 }
 
-/** Echo allowlisted, same-host, and local-dev origins. Every other origin still gets `*` so API-key callers stay cross-origin. */
+/** Reflect this host, FIRST_PARTY_ORIGINS, and local loopback dev. Never `*`. */
 function allowOriginHeader(
   requestOrigin: string,
   requestUrl: string,
   environment: string | undefined,
   extraOrigins: ReadonlySet<string>,
-): string {
+): string | undefined {
   const origin = canonicalOrigin(requestOrigin);
-  if (!origin) return "*";
+  if (!origin) return undefined;
   if (extraOrigins.has(origin)) return origin;
   let request: URL;
   try {
     request = new URL(requestUrl);
   } catch {
-    return "*";
+    return undefined;
   }
   const originUrl = new URL(origin);
   if (originUrl.host === request.host) return origin;
   if (environment !== "production" && isLoopback(originUrl.hostname) && isLoopback(request.hostname)) return origin;
-  return "*";
+  return undefined;
 }
 
 function isFirstParty(request: Request, environment: string | undefined, extraOrigins: ReadonlySet<string>): boolean {
@@ -405,23 +368,6 @@ function isFirstParty(request: Request, environment: string | undefined, extraOr
 
 function isLoopback(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
-}
-
-function bearer(header: string | undefined): string {
-  if (!header) return "";
-  const trimmed = header.trim();
-  return trimmed.toLowerCase().startsWith("bearer ") ? trimmed.slice(7).trim() : trimmed;
-}
-
-function allowIssue(ip: string, nowMs: number): boolean {
-  const start = Math.floor(nowMs / 3600000);
-  const row = issueHits.get(ip);
-  if (!row || row.start !== start) {
-    issueHits.set(ip, { start, count: 1 });
-    return true;
-  }
-  row.count += 1;
-  return row.count <= 20;
 }
 
 async function readJson(request: Request): Promise<{ ok: true; value: unknown } | { ok: false }> {
@@ -533,41 +479,3 @@ function fromEngine(c: { json: (body: unknown, status?: number) => Response }, e
 function round6(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
-
-function docsHtml(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Vinmeen API</title>
-  <style>
-    body { margin: 0; font-family: Georgia, "Noto Serif Tamil", serif; background: #FBF6EE; color: #2A1614; }
-    header { padding: 28px 24px 8px; max-width: 880px; margin: 0 auto; }
-    h1 { font-weight: 560; font-size: 42px; margin: 0; color: #6E1F2C; }
-    p { max-width: 720px; line-height: 1.5; }
-    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    pre { background: #2A1614; color: #FBF6EE; padding: 16px; border-radius: 12px; overflow: auto; }
-    a { color: #6E1F2C; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Vinmeen API</h1>
-    <p>விண்மீன் · Porutham for Tamil families. The site on this host, and browser origins listed in <code>FIRST_PARTY_ORIGINS</code>, call the API with no key. Any other app sends <code>X-Api-Key</code>. Issue one with <code>POST /api/v1/keys</code>. Local wrangler dev also accepts <code>${DEV_TOKEN}</code> until you run in production.</p>
-    <pre>curl -s -H "X-Api-Key: ${DEV_TOKEN}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"date":"1990-08-15","time":"10:30","latitude":13.0827,"longitude":80.2707,"timezone":"Asia/Kolkata"}' \\
-  http://127.0.0.1:8787/api/v1/nakshatra</pre>
-    <p>Machine-readable spec: <a href="/api/v1/openapi.json">/api/v1/openapi.json</a></p>
-  </header>
-  <div id="app"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-  <script>
-    Scalar.createApiReference("#app", { url: "/api/v1/openapi.json", theme: "default" });
-  </script>
-</body>
-</html>`;
-}
-
-export { DEV_TOKEN };
