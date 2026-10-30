@@ -316,3 +316,169 @@ describe("time and astronomy", () => {
     expect(person.chart).toBeTruthy();
   });
 });
+
+const neutralLords = {
+  bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+  groom: { nakshatraId: "rohini", pada: 1, rasiId: "rishabha" },
+};
+
+describe("scored explanations", () => {
+  it("calls two neutral lords a full point in Kerala and partial in Tamil Nadu", () => {
+    const kerala = matchHoroscopes({ ...neutralLords, traditionId: "kerala", lang: "en" });
+    const lords = kerala.checks.find((c) => c.id === "rasi-adhipathi")!;
+    expect(lords.level).toBe("match");
+    expect(lords.points).toBe(1);
+    expect(lords.explanation).toContain("full match (1)");
+    expect(lords.explanation.toLowerCase()).not.toContain("partial");
+
+    const tamil = matchHoroscopes({ ...neutralLords, traditionId: "tamil-nadu", lang: "en" });
+    const tamilLords = tamil.checks.find((c) => c.id === "rasi-adhipathi")!;
+    expect(tamilLords.level).toBe("partial");
+    expect(tamilLords.points).toBe(0.5);
+    expect(tamilLords.explanation).toContain("partial (0.5)");
+
+    const keralaTa = matchHoroscopes({ ...neutralLords, traditionId: "kerala", lang: "ta" });
+    const taLords = keralaTa.checks.find((c) => c.id === "rasi-adhipathi")!.explanation;
+    expect(taLords).toContain("முழுப் பொருத்தம்");
+    expect(taLords).not.toContain("பாதி");
+
+    const tamilTa = matchHoroscopes({ ...neutralLords, traditionId: "tamil-nadu", lang: "ta" });
+    expect(tamilTa.checks.find((c) => c.id === "rasi-adhipathi")!.explanation).toContain("பாதி");
+  });
+
+  it("states the graha maitri scale for the relation that scored", () => {
+    const report = matchHoroscopes({ ...neutralLords, traditionId: "ashtakoota", lang: "en" });
+    const row = report.checks.find((c) => c.id === "graha-maitri")!;
+    expect(row.points).toBe(3);
+    expect(row.maxPoints).toBe(5);
+    expect(row.explanation).toContain("3 / 5");
+    expect(row.explanation).toContain("3 for two neutrals");
+    expect(row.explanation).toContain("0.5");
+    expect(row.explanation.toLowerCase()).not.toContain("are partial");
+
+    const ta = matchHoroscopes({ ...neutralLords, traditionId: "ashtakoota", lang: "ta" });
+    const text = ta.checks.find((c) => c.id === "graha-maitri")!.explanation;
+    expect(text).toContain("3 / 5");
+    expect(text).toContain("இரு நடுநிலை 3");
+  });
+
+  it("describes Ashtakoota Deva with Rakshasa as 1/6, and Tamil porutham as a miss", () => {
+    const pair = {
+      bride: { nakshatraId: "krittika", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+    };
+    const guna = matchHoroscopes({ ...pair, traditionId: "ashtakoota", lang: "en" });
+    const gana = guna.checks.find((c) => c.id === "gana")!;
+    expect(gana.points).toBe(1);
+    expect(gana.maxPoints).toBe(6);
+    expect(gana.level).toBe("partial");
+    expect(gana.explanation).toContain("Deva with Rakshasa scores 1");
+    expect(gana.explanation).toContain("1 / 6");
+    expect(gana.explanation.toLowerCase()).not.toContain("does not match");
+
+    const ta = matchHoroscopes({ ...pair, traditionId: "ashtakoota", lang: "ta" });
+    const taText = ta.checks.find((c) => c.id === "gana")!.explanation;
+    expect(taText).toContain("தேவமும் ராட்சசமும் 1");
+    expect(taText).toContain("1 / 6");
+    expect(taText).not.toContain("பொருந்தாது");
+
+    const tamil = matchHoroscopes({ ...pair, traditionId: "tamil-nadu", lang: "en" });
+    const tamilGana = tamil.checks.find((c) => c.id === "gana")!;
+    expect(tamilGana.level).toBe("none");
+    expect(tamilGana.explanation.toLowerCase()).toContain("this pair does not match");
+  });
+});
+
+describe("critical badge and verdict names", () => {
+  it("marks only the checks that vetoed, including a five-key miss", () => {
+    const tamil = matchHoroscopes({ ...rohiniPushya, traditionId: "tamil-nadu", lang: "en" });
+    const flag = Object.fromEntries(tamil.checks.map((c) => [c.id, c.critical]));
+    expect(tamil.checks.find((c) => c.id === "rajju")!.level).toBe("match");
+    expect(tamil.checks.find((c) => c.id === "dina")!.level).toBe("none");
+    expect(flag.rajju).toBe(false);
+    expect(flag.vedha).toBe(false);
+    expect(flag.dina).toBe(true);
+    expect(flag.gana).toBe(false);
+    expect(flag.yoni).toBe(false);
+    expect(flag.rasi).toBe(false);
+    expect(flag["rasi-adhipathi"]).toBe(false);
+
+    const kongu = matchHoroscopes({ ...rohiniPushya, traditionId: "kongu", lang: "en" });
+    expect(kongu.checks.find((c) => c.id === "dina")!.critical).toBe(false);
+    expect(kongu.checks.find((c) => c.id === "rajju")!.critical).toBe(false);
+
+    const yoni = matchHoroscopes({
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "hasta", pada: 1, rasiId: "kanya" },
+      traditionId: "tamil-nadu",
+      lang: "en",
+    });
+    expect(yoni.verdict).toBe("not-recommended");
+    expect(yoni.checks.find((c) => c.id === "yoni")!.level).toBe("none");
+    expect(yoni.checks.find((c) => c.id === "yoni")!.critical).toBe(true);
+    expect(yoni.checks.find((c) => c.id === "rajju")!.level).toBe("match");
+    expect(yoni.checks.find((c) => c.id === "rajju")!.critical).toBe(false);
+
+    const keralaPass = matchHoroscopes({ ...neutralLords, traditionId: "kerala", lang: "en" });
+    expect(keralaPass.checks.find((c) => c.id === "rajju")!.level).toBe("match");
+    expect(keralaPass.checks.find((c) => c.id === "rajju")!.critical).toBe(false);
+    expect(keralaPass.checks.find((c) => c.id === "vedha")!.critical).toBe(false);
+
+    const madhya = matchHoroscopes({
+      bride: { nakshatraId: "bharani", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "pushya", pada: 1, rasiId: "kataka" },
+      traditionId: "kerala",
+      lang: "en",
+    });
+    expect(madhya.checks.find((c) => c.id === "rajju")!.level).toBe("none");
+    expect(madhya.checks.find((c) => c.id === "rajju")!.critical).toBe(true);
+
+    const partialNadi = matchHoroscopes({
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "ardra", pada: 1, rasiId: "mithuna" },
+      traditionId: "kerala",
+      lang: "en",
+    });
+    expect(partialNadi.checks.find((c) => c.id === "rajju")!.level).toBe("partial");
+    expect(partialNadi.checks.find((c) => c.id === "rajju")!.critical).toBe(false);
+
+    const nadiMiss = matchHoroscopes({
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "ardra", pada: 1, rasiId: "mithuna" },
+      traditionId: "ashtakoota",
+      lang: "en",
+    });
+    expect(nadiMiss.checks.find((c) => c.id === "nadi")!.level).toBe("none");
+    expect(nadiMiss.checks.find((c) => c.id === "nadi")!.critical).toBe(true);
+    const nadiOk = matchHoroscopes({
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "bharani", pada: 1, rasiId: "mesha" },
+      traditionId: "ashtakoota",
+      lang: "en",
+    });
+    expect(nadiOk.checks.find((c) => c.id === "nadi")!.level).toBe("match");
+    expect(nadiOk.checks.find((c) => c.id === "nadi")!.critical).toBe(false);
+  });
+
+  it("names Rajju once when Tamil Nadu Ashwini and Magha fail Rajju and the five keys", () => {
+    const pair = {
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "magha", pada: 1, rasiId: "simha" },
+    };
+    const en = matchHoroscopes({ ...pair, traditionId: "tamil-nadu", lang: "en" });
+    expect(en.verdict).toBe("not-recommended");
+    expect(en.checks.find((c) => c.id === "rajju")!.level).toBe("none");
+    expect(en.checks.find((c) => c.id === "rajju")!.critical).toBe(true);
+    expect(en.checks.find((c) => c.id === "dina")!.critical).toBe(true);
+    expect(en.checks.find((c) => c.id === "gana")!.critical).toBe(true);
+    expect(en.checks.find((c) => c.id === "vedha")!.critical).toBe(false);
+    expect(en.verdictText.match(/Rajju/g)).toEqual(["Rajju"]);
+    expect(en.verdictText).toContain("Dinam, Ganam, Rajju failed");
+    expect(en.verdictText).not.toContain("Rajju did not clear");
+
+    const ta = matchHoroscopes({ ...pair, traditionId: "tamil-nadu", lang: "ta" });
+    expect(ta.verdictText.match(/ரஜ்ஜு/g)).toEqual(["ரஜ்ஜு"]);
+    expect(ta.verdictText).toContain("தினம், கணம், ரஜ்ஜு இல்லாததால்");
+    expect(ta.verdictText).not.toContain("ரஜ்ஜு தவறியுள்ளது");
+  });
+});

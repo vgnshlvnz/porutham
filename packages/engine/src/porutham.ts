@@ -152,6 +152,7 @@ interface ChevvaiRules {
 const SAME_UTTAMA = ["rohini", "ardra", "magha", "hasta", "vishakha", "shravana", "uttara-bhadrapada", "revati"];
 const SAME_ADHAMA = ["bharani", "ashlesha", "swati", "jyeshtha", "moola", "dhanishta", "shatabhisha", "purva-bhadrapada"];
 const DINA_OK = [2, 4, 6, 8, 9, 11, 13, 15, 18, 20, 24, 26];
+const FIVE_KEY = ["dina", "gana", "yoni", "rasi", "rajju"];
 const SIXTH: [RasiId, RasiId][] = [
   ["mesha", "kanya"],
   ["mithuna", "vrischika"],
@@ -549,6 +550,7 @@ export interface PublicCheck {
   level: Level;
   points: number;
   maxPoints: number;
+  /** True only when this line's miss is a reason the reading is not recommended. */
   critical: boolean;
   explanation: string;
 }
@@ -724,7 +726,7 @@ function buildStarChecks(bride: ResolvedPerson, groom: ResolvedPerson, rules: Ru
       maxPoints: 1,
       level: lords.level,
       critical: false,
-      reason: { code: "lords", params: { bride: bR.lord, groom: gR.lord, ab: lords.ab, ba: lords.ba } },
+      reason: { code: "lords", params: { bride: bR.lord, groom: gR.lord, ab: lords.ab, ba: lords.ba, neutralPass: rules.neutralLordsPass ? 1 : 0 } },
     });
     drafts.push(tamilVasya(bR.id, gR.id));
     drafts.push(rajjuCheck(bN, gN, rules));
@@ -779,7 +781,7 @@ function buildStarChecks(bride: ResolvedPerson, groom: ResolvedPerson, rules: Ru
       maxPoints: 5,
       level: levelFromPoints(mPoints, 5),
       critical: false,
-      reason: { code: "maitri", params: { bride: bR.lord, groom: gR.lord, points: mPoints, ab: relation(bR.lord, gR.lord), ba: relation(gR.lord, bR.lord) } },
+      reason: { code: "maitri", params: { bride: bR.lord, groom: gR.lord, points: mPoints, max: 5, ab: relation(bR.lord, gR.lord), ba: relation(gR.lord, bR.lord) } },
     });
     const gPoints = ganaGuna(gN.gana, bN.gana);
     drafts.push({
@@ -788,7 +790,7 @@ function buildStarChecks(bride: ResolvedPerson, groom: ResolvedPerson, rules: Ru
       maxPoints: 6,
       level: levelFromPoints(gPoints, 6),
       critical: false,
-      reason: { code: "gana-guna", params: { groom: gN.gana, bride: bN.gana, points: gPoints } },
+      reason: { code: "gana-guna", params: { groom: gN.gana, bride: bN.gana, points: gPoints, max: 6 } },
     });
     drafts.push(bhakoot(bR.id, gR.id, bR.lord, gR.lord));
   }
@@ -800,7 +802,7 @@ function buildStarChecks(bride: ResolvedPerson, groom: ResolvedPerson, rules: Ru
       points: same ? 0 : 1,
       maxPoints: 1,
       level: same ? "none" : "match",
-      critical: rules.nadiCritical,
+      critical: false,
       reason: { code: "nadi-binary", params: { bride: bN.nadi, groom: gN.nadi } },
     });
   } else if (rules.nadiMode === "ashtakoota") {
@@ -893,28 +895,28 @@ function tamilVasya(bride: RasiId, groom: RasiId): Draft {
 function rajjuCheck(bride: (typeof NAKSHATRAS)[number], groom: (typeof NAKSHATRAS)[number], rules: Rules): Draft {
   if (rules.rajjuMode === "kerala-nadi") {
     if (bride.nadi !== groom.nadi) {
-      return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: true, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "different" } } };
+      return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: false, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "different" } } };
     }
     if (bride.nadi === "madhya") {
-      return { id: "rajju", points: 0, maxPoints: 1, level: "none", critical: true, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "madhya" } } };
+      return { id: "rajju", points: 0, maxPoints: 1, level: "none", critical: false, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "madhya" } } };
     }
-    return { id: "rajju", points: 0.5, maxPoints: 1, level: "partial", critical: true, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "same-other" } } };
+    return { id: "rajju", points: 0.5, maxPoints: 1, level: "partial", critical: false, reason: { code: "rajju-nadi", params: { bride: bride.nadi, groom: groom.nadi, band: "same-other" } } };
   }
   if (bride.rajju !== groom.rajju) {
-    return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: true, reason: { code: "rajju-body", params: { bride: bride.rajju, groom: groom.rajju, result: "different" } } };
+    return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: false, reason: { code: "rajju-body", params: { bride: bride.rajju, groom: groom.rajju, result: "different" } } };
   }
   const oppose =
     (bride.flow === "ascending" && groom.flow === "descending") ||
     (bride.flow === "descending" && groom.flow === "ascending");
   if (rules.rajjuArohaCancels && oppose) {
-    return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: true, reason: { code: "rajju-body", params: { bride: bride.rajju, groom: groom.rajju, result: "cancelled" } } };
+    return { id: "rajju", points: 1, maxPoints: 1, level: "match", critical: false, reason: { code: "rajju-body", params: { bride: bride.rajju, groom: groom.rajju, result: "cancelled" } } };
   }
   return {
     id: "rajju",
     points: 0,
     maxPoints: 1,
     level: "none",
-    critical: true,
+    critical: false,
     reason: { code: "rajju-body", params: { bride: bride.rajju, groom: groom.rajju, result: oppose ? "would-cancel" : "same" } },
   };
 }
@@ -927,7 +929,7 @@ function vedhaCheck(bride: string, groom: string, head: boolean): Draft {
     points: hit ? 0 : 1,
     maxPoints: 1,
     level: hit ? "none" : "match",
-    critical: true,
+    critical: false,
     reason: { code: "vedha", params: { hit: hit ? 1 : 0 } },
   };
 }
@@ -975,7 +977,7 @@ function nadiGuna(bride: ResolvedPerson, groom: ResolvedPerson): Draft {
     points,
     maxPoints: 8,
     level: levelFromPoints(points, 8),
-    critical: true,
+    critical: false,
     reason: { code: "nadi-guna", params: { bride: b.nadi, groom: g.nadi, why, points } },
   };
 }
@@ -1193,9 +1195,13 @@ export function matchHoroscopes(input: {
   const drafts = buildStarChecks(bride, groom, rules);
   const score = round1(drafts.reduce((sum, d) => sum + d.points, 0));
   const maxScore = drafts.reduce((sum, d) => sum + d.maxPoints, 0);
-  const failed = (id: string) => drafts.find((d) => d.id === id)?.level === "none";
+  const failed = (id: string) => drafts.some((d) => d.id === id && d.level === "none");
+  const five = rules.fiveKeyVeto ? FIVE_KEY.filter(failed) : [];
+  const vetoNames = rules.vetoIds.filter((id) => failed(id) && !five.includes(id));
+  const vetoed = new Set<string>([...five, ...vetoNames]);
+  for (const draft of drafts) draft.critical = vetoed.has(draft.id);
   let verdict: MatchReport["verdict"] = "poor";
-  if (rules.vetoIds.some(failed) || (rules.fiveKeyVeto && ["dina", "gana", "yoni", "rasi", "rajju"].some(failed))) {
+  if (vetoed.size > 0) {
     verdict = "not-recommended";
   } else if (score >= rules.excellentMin) verdict = "excellent";
   else if (score >= rules.goodMin) verdict = "good";
@@ -1209,9 +1215,6 @@ export function matchHoroscopes(input: {
     ...(rules.rahu ? [rahuDosha(bride, groom)] : []),
     ...textDoshas(bride, groom, rules),
   ];
-
-  const vetoNames = drafts.filter((d) => rules.vetoIds.includes(d.id) && d.level === "none").map((d) => d.id);
-  const five = rules.fiveKeyVeto ? ["dina", "gana", "yoni", "rasi", "rajju"].filter(failed) : [];
 
   return {
     tradition: rules.info,
