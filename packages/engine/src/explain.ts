@@ -190,9 +190,7 @@ function reasonText(draft: Draft, lang: Lang): string {
     }
     case "gana":
     case "gana-guna":
-      return ta
-        ? `மணமகன் ${GANA[p.groom as Gana][1]}, மணமகள் ${GANA[p.bride as Gana][1]}. ஒரே கணம் முழுப் பொருத்தம். தேவ மணமகனும் மனுஷ்ய மணமகளும் முழுப் பொருத்தம்; மறுதிசை பாதி. ராட்சச கணம் ஒருவரிடம் மட்டும் இருந்தால் பொருந்தாது.`
-        : `The groom is ${GANA[p.groom as Gana][0]} and the bride is ${GANA[p.bride as Gana][0]}. The same gana is a full match. A Deva groom with a Manushya bride is a full match, and the reverse is partial. Rakshasa on one side only does not match.`;
+      return ganaText(draft, lang);
     case "mahendra":
       return ta
         ? `எண்ணிக்கை ${p.count}. மகேந்திரம் 4, 7, 10, 13, 16, 19, 22, 25-ல் மட்டுமே வரும். ${draft.level === "match" ? "இந்த எண் பொருந்துகிறது." : "இந்த எண் பொருந்தவில்லை."}`
@@ -213,9 +211,7 @@ function reasonText(draft: Draft, lang: Lang): string {
       return rasiText(lang, Number(p.count), String(p.why), draft.level);
     case "lords":
     case "maitri":
-      return ta
-        ? `மணமகள் அதிபதி ${PLANET[p.bride as Planet][1]}, மணமகன் அதிபதி ${PLANET[p.groom as Planet][1]}. மணமகள் பார்வையில் ${relWord(String(p.ab), true)}; மணமகன் பார்வையில் ${relWord(String(p.ba), true)}. ${code === "maitri" ? `குண மதிப்பு ${p.points} / 5.` : "பரஸ்பர நட்பு அல்லது நட்பு+நடுநிலை முழுப் பொருத்தம்; இரு நடுநிலை அல்லது நட்பு+பகை பாதி; பகை+நடுநிலை அல்லது இரு பகை பொருந்தாது."}`
-        : `The bride's lord is ${PLANET[p.bride as Planet][0]} and the groom's lord is ${PLANET[p.groom as Planet][0]}. From the bride's lord, the relation is ${relWord(String(p.ab), false)}; from the groom's lord, ${relWord(String(p.ba), false)}. ${code === "maitri" ? `The guna score is ${p.points} / 5.` : "Mutual friends, or a friend with a neutral, are a full match. Two neutrals, or a friend with an enemy, are partial. An enemy with a neutral, or two enemies, do not match."}`;
+      return lordsText(draft, lang);
     case "vasya":
       return vasyaText(lang, String(p.way));
     case "rajju-body":
@@ -300,6 +296,82 @@ function relWord(rel: string, ta: boolean): string {
   if (rel === "friend") return ta ? "நட்பு" : "friend";
   if (rel === "enemy") return ta ? "பகை" : "enemy";
   return ta ? "நடுநிலை" : "neutral";
+}
+
+function relationKind(ab: string, ba: string): string {
+  if (ab === "same" || ba === "same") return "same";
+  return [ab, ba].sort().join("+");
+}
+
+function ganaText(draft: Draft, lang: Lang): string {
+  const p = draft.reason.params;
+  const ta = lang === "ta";
+  const groom = GANA[p.groom as Gana][ta ? 1 : 0];
+  const bride = GANA[p.bride as Gana][ta ? 1 : 0];
+  const head = ta
+    ? `மணமகன் ${groom}, மணமகள் ${bride}. `
+    : `The groom is ${groom} and the bride is ${bride}. `;
+  if (draft.reason.code === "gana-guna") {
+    const max = Number(p.max) || 6;
+    return head + (ta
+      ? `குண அளவு: ஒரே கணம் 6, தேவ மணமகனும் மனுஷ்ய மணமகளும் 6, மறுதிசை 5, தேவமும் ராட்சசமும் 1, மனுஷ்யமும் ராட்சசமும் 0. இந்த ஜோடி ${p.points} / ${max}.`
+      : `On the guna scale, the same gana scores 6, a Deva groom with a Manushya bride scores 6, the reverse scores 5, Deva with Rakshasa scores 1, and Manushya with Rakshasa scores 0. This pair scores ${p.points} / ${max}.`);
+  }
+  const result = draft.level === "match"
+    ? (ta ? "இந்த ஜோடி முழுப் பொருத்தம்." : "This pair is a full match.")
+    : draft.level === "partial"
+      ? (ta ? "இந்த ஜோடி பாதிப் பொருத்தம்." : "This pair is partial.")
+      : (ta ? "இந்த ஜோடி பொருந்தாது." : "This pair does not match.");
+  const rule = ta
+    ? "ஒரே கணம் முழுப் பொருத்தம். தேவ மணமகனும் மனுஷ்ய மணமகளும் முழுப் பொருத்தம்; மறுதிசை பாதி. ராட்சச கணம் ஒருவரிடம் மட்டும் இருந்தால் பொருந்தாது."
+    : "The same gana is a full match. A Deva groom with a Manushya bride is a full match, and the reverse is partial. Rakshasa on one side only does not match.";
+  return `${head}${rule} ${result}`;
+}
+
+function lordsText(draft: Draft, lang: Lang): string {
+  const p = draft.reason.params;
+  const ta = lang === "ta";
+  const bride = PLANET[p.bride as Planet][ta ? 1 : 0];
+  const groom = PLANET[p.groom as Planet][ta ? 1 : 0];
+  const head = ta
+    ? `மணமகள் அதிபதி ${bride}, மணமகன் அதிபதி ${groom}. மணமகள் பார்வையில் ${relWord(String(p.ab), true)}; மணமகன் பார்வையில் ${relWord(String(p.ba), true)}. `
+    : `The bride's lord is ${bride} and the groom's lord is ${groom}. From the bride's lord, the relation is ${relWord(String(p.ab), false)}; from the groom's lord, ${relWord(String(p.ba), false)}. `;
+  if (draft.reason.code === "maitri") {
+    const max = Number(p.max) || 5;
+    return head + (ta
+      ? `குண அளவு: ஒரே அதிபதி அல்லது பரஸ்பர நட்பு 5, நட்புடன் நடுநிலை 4, இரு நடுநிலை 3, நட்புடன் பகை 1, பகையுடன் நடுநிலை 0.5, இரு பகை 0. இந்த ஜோடி ${p.points} / ${max}.`
+      : `The guna scale is 5 for the same lord or mutual friends, 4 for a friend with a neutral, 3 for two neutrals, 1 for a friend with an enemy, 0.5 for an enemy with a neutral, and 0 for two enemies. This pair scores ${p.points} / ${max}.`);
+  }
+  return head + lordPoruthamTail(String(p.ab), String(p.ba), Number(p.neutralPass) === 1, draft.points, ta);
+}
+
+function lordPoruthamTail(ab: string, ba: string, neutralPass: boolean, points: number, ta: boolean): string {
+  if (relationKind(ab, ba) === "neutral+neutral") {
+    if (neutralPass) {
+      return ta
+        ? `இரு நடுநிலை. இந்த வாசிப்பில் இது முழுப் பொருத்தம் (${points}).`
+        : `Both ways are neutral. This reading scores two neutrals as a full match (${points}).`;
+    }
+    return ta
+      ? `இரு நடுநிலை. இந்த வாசிப்பில் இது பாதிப் பொருத்தம் (${points}).`
+      : `Both ways are neutral. This reading scores two neutrals as partial (${points}).`;
+  }
+  const kind = relationKind(ab, ba);
+  const phrase: Record<string, [string, string]> = {
+    same: ["The lords are the same planet.", "அதே கிரகம்."],
+    "friend+friend": ["The lords are mutual friends.", "பரஸ்பர நட்பு."],
+    "friend+neutral": ["One side is a friend and the other is neutral.", "ஒரு பக்கம் நட்பு, மற்றது நடுநிலை."],
+    "enemy+friend": ["One side is a friend and the other is an enemy.", "ஒரு பக்கம் நட்பு, மற்றது பகை."],
+    "enemy+neutral": ["One side is an enemy and the other is neutral.", "ஒரு பக்கம் பகை, மற்றது நடுநிலை."],
+    "enemy+enemy": ["The lords are mutual enemies.", "இரு பகை."],
+  };
+  const row = phrase[kind] ?? ["", ""];
+  const scored = points >= 1
+    ? (ta ? "முழுப் பொருத்தம்" : "a full match")
+    : points > 0
+      ? (ta ? "பாதிப் பொருத்தம்" : "partial")
+      : (ta ? "பொருத்தம் இல்லை" : "not a match");
+  return ta ? `${row[1]} ${scored} (${points}).` : `${row[0]} This pair is ${scored} (${points}).`;
 }
 
 function rasiText(lang: Lang, count: number, why: string, level: Level): string {
@@ -405,7 +477,8 @@ export function verdictText(
 ): string {
   const name = lang === "ta" ? tradition.ta : tradition.en;
   const mark = `${score}/${maxScore}`;
-  const veto = vetoIds.map((id) => (lang === "ta" ? meta(id).ta : meta(id).en)).join(", ");
+  const listedInFive = new Set(fiveKey);
+  const veto = vetoIds.filter((id) => !listedInFive.has(id)).map((id) => (lang === "ta" ? meta(id).ta : meta(id).en)).join(", ");
   const five = fiveKey.map((id) => (lang === "ta" ? meta(id).ta : meta(id).en)).join(", ");
   if (lang === "ta") {
     if (verdict === "not-recommended") {
@@ -421,7 +494,7 @@ export function verdictText(
   if (verdict === "not-recommended") {
     const because = [
       veto ? `${veto} did not clear` : "",
-      five ? `${five} failed, and this tradition treats Dinam, Ganam, Yoni, Rasi and Rajju as essential` : "",
+      five ? `${five} failed, and this tradition treats a miss on its five essential checks as enough to set the reading aside` : "",
     ].filter(Boolean).join("; ");
     return `${name} gives ${mark}. ${because}. The reading is not recommended, whatever the other lines say. Please ask your astrologer.`;
   }
