@@ -251,8 +251,8 @@ const TRADITION_RULES: Rules[] = [
       scoreUnit: "porutham",
       maxScore: 10,
       summary: {
-        en: "The ten poruthams most Tamil Nadu families ask for. Rajju and Vedhai can set the reading aside, and so can a complete miss on Dinam, Ganam, Yoni, or Rasi. A full match scores 1 and a partial match scores ½.",
-        ta: "தமிழ்நாட்டுக் குடும்பங்கள் கேட்கும் பத்துப் பொருத்தம். ரஜ்ஜு, வேதை தவறினால், அல்லது தினம், கணம், யோனி, ராசி முற்றிலும் பொருந்தாவிட்டால், இந்த மரபு பொருத்தத்தை ஒதுக்கும். முழுப் பொருத்தம் 1, பாதிப் பொருத்தம் ½.",
+        en: "The ten poruthams most Tamil Nadu families ask for. Rajju and Vedhai can set the reading aside, and so can a complete miss on Dinam, Ganam, Yoni, or Rasi. One-sided Chevvai dosham sets it aside too, without changing the score. A full match scores 1 and a partial match scores ½.",
+        ta: "தமிழ்நாட்டுக் குடும்பங்கள் கேட்கும் பத்துப் பொருத்தம். ரஜ்ஜு, வேதை தவறினால், அல்லது தினம், கணம், யோனி, ராசி முற்றிலும் பொருந்தாவிட்டால், இந்த மரபு பொருத்தத்தை ஒதுக்கும். ஒரு பக்கச் செவ்வாய் தோஷமும் மதிப்பெண்ணை மாற்றாமல் வாசிப்பை ஒதுக்கும். முழுப் பொருத்தம் 1, பாதிப் பொருத்தம் ½.",
       },
       sources: [
         { title: "Namma Calendar porutham notes", note: "Five key poruthams (Dinam, Ganam, Yoni, Rasi, Rajju) and the 8 / 6 grade bands." },
@@ -344,8 +344,8 @@ const TRADITION_RULES: Rules[] = [
       scoreUnit: "porutham",
       maxScore: 11,
       summary: {
-        en: "Approximate composite. The Tamil Nadu ten, plus Nadi as an essential check, Chevvai graded by house the way a Srivaishnava matching note describes it, a six-month dasa sandhi screen, Rahu in the 7th or 8th, and an optional same-gothra warning. Iyer and Iyengar practice is not one book.",
-        ta: "தோராயக் கூட்டு. தமிழ்நாட்டுப் பத்து, கட்டாய நாடி, ஸ்ரீவைஷ்ணவக் குறிப்பில் உள்ள செவ்வாய் அளவு, ஆறு மாத தசா சந்தி, 7 அல்லது 8-ல் ராகு, மற்றும் விருப்பத்திற்கு ஒரே கோத்திர எச்சரிக்கை. ஐயர், ஐயங்கார் மரபு ஒரே புத்தகம் அல்ல.",
+        en: "Approximate composite. The Tamil Nadu ten, plus Nadi as an essential check, Chevvai graded by house the way a Srivaishnava matching note describes it, a six-month dasa sandhi screen, and Rahu in the 7th or 8th. Same gothra sets this reading aside. A critical Chevvai mismatch does too; a mild gap stays partial. Iyer and Iyengar practice is not one book.",
+        ta: "தோராயக் கூட்டு. தமிழ்நாட்டுப் பத்து, கட்டாய நாடி, ஸ்ரீவைஷ்ணவக் குறிப்பில் உள்ள செவ்வாய் அளவு, ஆறு மாத தசா சந்தி, 7 அல்லது 8-ல் ராகு. ஒரே கோத்திரம் இந்த வாசிப்பை ஒதுக்கும். கடுமையான செவ்வாய் பொருத்தமின்மையும் அப்படியே; லேசான இடைவெளி பாதியாக இருக்கும். ஐயர், ஐயங்கார் மரபு ஒரே புத்தகம் அல்ல.",
       },
       sources: [
         { title: "TRS Iyengar, Star Matching (Srivaishnavam Practices)", note: "Nadi must differ. Chevvai in 7 or 8 from lagna or Moon is strong; from Venus, or in 2, 4, 12, is milder. Severity should match. Guru's presence reduces it. Same gothra is avoided in the north-Indian section of the same note; Tamil brahmin families share that rule." },
@@ -364,8 +364,8 @@ const TRADITION_RULES: Rules[] = [
       scoreUnit: "porutham",
       maxScore: 10,
       summary: {
-        en: "Approximate for the horoscope: no separate Nagarathar porutham table was found, so the Tamil Nadu ten are used. The documented marriage rule added here is the nine-kovil check. Same kovil is traditionally avoided. Illaiyathangudi and Mathur allow pirivu marriages this app cannot see.",
-        ta: "ஜாதகத்துக்குத் தோராயம்: தனி நகரத்தார் பொருத்த அட்டவணை கிடைக்கவில்லை, அதனால் தமிழ்நாட்டுப் பத்து. ஆவணப்படுத்தப்பட்ட விதி ஒன்பது கோயில். ஒரே கோயில் வழக்கமாகத் தவிர்க்கப்படும். இளையாத்தங்குடி, மாத்தூர் பிரிவுத் திருமணத்தை இந்தச் செயலி காட்டாது.",
+        en: "Approximate for the horoscope: no separate Nagarathar porutham table was found, so the Tamil Nadu ten are used. The documented marriage rule added here is the nine-kovil check. Same kovil sets the reading aside. Illaiyathangudi and Mathur allow pirivu marriages this app cannot see, so those two stay a partial note.",
+        ta: "ஜாதகத்துக்குத் தோராயம்: தனி நகரத்தார் பொருத்த அட்டவணை கிடைக்கவில்லை, அதனால் தமிழ்நாட்டுப் பத்து. ஆவணப்படுத்தப்பட்ட விதி ஒன்பது கோயில். ஒரே கோயில் இந்த வாசிப்பை ஒதுக்கும். இளையாத்தங்குடி, மாத்தூர் பிரிவுத் திருமணத்தை இந்தச் செயலி காட்டாது, அதனால் அந்த இரண்டும் பாதிக் குறிப்பு.",
       },
       sources: [
         { title: "Nagarathar Sangam of North America", note: "Nine kovils; bride and groom are not taken from the same kovil. Illaiyathangudi and Mathur permit alliance across pirivu." },
@@ -559,6 +559,7 @@ export interface PublicDosha {
   id: string;
   name: string;
   level: Level;
+  /** True only when this dosha's miss is a reason the reading is not recommended. */
   critical: boolean;
   explanation: string;
 }
@@ -1195,18 +1196,6 @@ export function matchHoroscopes(input: {
   const drafts = buildStarChecks(bride, groom, rules);
   const score = round1(drafts.reduce((sum, d) => sum + d.points, 0));
   const maxScore = drafts.reduce((sum, d) => sum + d.maxPoints, 0);
-  const failed = (id: string) => drafts.some((d) => d.id === id && d.level === "none");
-  const five = rules.fiveKeyVeto ? FIVE_KEY.filter(failed) : [];
-  const vetoNames = rules.vetoIds.filter((id) => failed(id) && !five.includes(id));
-  const vetoed = new Set<string>([...five, ...vetoNames]);
-  for (const draft of drafts) draft.critical = vetoed.has(draft.id);
-  let verdict: MatchReport["verdict"] = "poor";
-  if (vetoed.size > 0) {
-    verdict = "not-recommended";
-  } else if (score >= rules.excellentMin) verdict = "excellent";
-  else if (score >= rules.goodMin) verdict = "good";
-  else if (score >= rules.borderlineMin) verdict = "borderline";
-
   const asOf = input.asOf ? new Date(input.asOf) : new Date();
   const doshaDrafts: Draft[] = [
     ...(rules.chevvai ? [chevvaiDosha(bride, groom, rules.chevvai)] : []),
@@ -1215,6 +1204,24 @@ export function matchHoroscopes(input: {
     ...(rules.rahu ? [rahuDosha(bride, groom)] : []),
     ...textDoshas(bride, groom, rules),
   ];
+  // A dosha veto is a hard stop only when that tradition marked it critical and it fully failed.
+  // Partial notes (Mathur/Illaiyathangudi pirivu, a mild Chevvai gap) and non-critical screens
+  // (dasa sandhi, Rahu, Kerala body rajju) stay on the card and do not set the reading aside.
+  // The critical flag matches the check badge: on only when this row is why the reading is not recommended.
+  const criticalDoshaIds = doshaDrafts.filter((d) => d.critical && d.level === "none").map((d) => d.id);
+  for (const draft of doshaDrafts) draft.critical = criticalDoshaIds.includes(draft.id);
+
+  const failed = (id: string) => drafts.some((d) => d.id === id && d.level === "none");
+  const five = rules.fiveKeyVeto ? FIVE_KEY.filter(failed) : [];
+  const vetoNames = rules.vetoIds.filter((id) => failed(id) && !five.includes(id));
+  const vetoed = new Set<string>([...five, ...vetoNames]);
+  for (const draft of drafts) draft.critical = vetoed.has(draft.id);
+  let verdict: MatchReport["verdict"] = "poor";
+  if (vetoed.size > 0 || criticalDoshaIds.length > 0) {
+    verdict = "not-recommended";
+  } else if (score >= rules.excellentMin) verdict = "excellent";
+  else if (score >= rules.goodMin) verdict = "good";
+  else if (score >= rules.borderlineMin) verdict = "borderline";
 
   return {
     tradition: rules.info,
@@ -1224,7 +1231,7 @@ export function matchHoroscopes(input: {
     score,
     maxScore,
     verdict,
-    verdictText: verdictText(lang, verdict, score, maxScore, rules.info, vetoNames, five),
+    verdictText: verdictText(lang, verdict, score, maxScore, rules.info, vetoNames, five, criticalDoshaIds),
     checks: drafts.map((d) => explainCheck(d, lang)),
     doshas: doshaDrafts.map((d) => explainDosha(d, lang)),
     notes: [
