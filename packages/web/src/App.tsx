@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, appHref, isResultHref, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
+import { planCard } from "./card";
 import { copy, levelLabel, type Lang } from "./i18n";
+import { isWarningNote, pairLine, reportText } from "./reportText";
 
 const RASI_IDS = ["mesha", "rishabha", "mithuna", "kataka", "simha", "kanya", "tula", "vrischika", "dhanus", "makara", "kumbha", "meena"];
 
@@ -524,45 +526,35 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
   }
   async function copyText() {
     if (!report) return;
-    await navigator.clipboard.writeText(reportText(report, lang));
+    await navigator.clipboard.writeText(reportText(report, lang, window.location.href));
     setNote(t.textCopied);
   }
   async function saveCard() {
     if (!report) return;
     await document.fonts.ready;
+    const measureCtx = document.createElement("canvas").getContext("2d");
+    if (!measureCtx) return;
+    const measure = (text: string, font: string) => {
+      measureCtx.font = font;
+      return measureCtx.measureText(text).width;
+    };
+    const plan = planCard(report, lang, measure);
     const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1350;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#FBF6EE";
-    ctx.fillRect(0, 0, 1080, 1350);
-    ctx.fillStyle = "#6E1F2C";
-    ctx.font = "600 72px Fraunces, 'Noto Serif Tamil', serif";
-    ctx.fillText("Vinmeen", 72, 120);
-    ctx.font = "600 36px 'Noto Serif Tamil', serif";
-    ctx.fillText("விண்மீன்", 72, 170);
-    ctx.fillStyle = "#C8962E";
-    ctx.fillRect(72, 196, 160, 6);
-    ctx.fillStyle = "#2A1614";
-    ctx.font = "600 42px 'Source Sans 3', 'Noto Sans Tamil', sans-serif";
-    ctx.fillText(lang === "ta" ? report.tradition.ta : report.tradition.en, 72, 270);
-    ctx.font = "600 92px Fraunces, 'Noto Serif Tamil', serif";
-    ctx.fillStyle = "#6E1F2C";
-    ctx.fillText(`${report.score}/${report.maxScore}`, 72, 390);
-    ctx.font = "400 32px 'Source Sans 3', 'Noto Sans Tamil', sans-serif";
-    ctx.fillStyle = "#2A1614";
-    wrap(ctx, report.verdictText, 72, 450, 936, 40);
-    let y = 620;
-    ctx.font = "600 28px 'Source Sans 3', 'Noto Sans Tamil', sans-serif";
-    for (const check of report.checks) {
-      ctx.fillStyle = check.level === "match" ? "#1E6B45" : check.level === "partial" ? "#8A5A12" : "#8C3A3A";
-      ctx.fillText(`${check.name}  ${levelLabel(lang, check.level)}`, 72, y);
-      y += 48;
-      if (y > 1220) break;
+    canvas.width = plan.width;
+    canvas.height = plan.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = plan.background;
+    ctx.fillRect(0, 0, plan.width, plan.height);
+    for (const rect of plan.rects) {
+      ctx.fillStyle = rect.color;
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
     }
-    ctx.fillStyle = "#6E1F2C";
-    ctx.font = "400 24px 'Source Sans 3', 'Noto Sans Tamil', sans-serif";
-    ctx.fillText(lang === "ta" ? "பொருத்தம் · Vinmeen" : "Porutham · Vinmeen", 72, 1300);
+    for (const run of plan.runs) {
+      ctx.font = run.font;
+      ctx.fillStyle = run.color;
+      ctx.fillText(run.text, run.x, run.y);
+    }
     const link = document.createElement("a");
     link.href = canvas.toDataURL("image/png");
     link.download = "vinmeen-porutham.png";
@@ -608,10 +600,20 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
                   <li key={dosha.id} className="rounded-3xl border border-dashed border-gold bg-white p-4">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="font-semibold">{dosha.name}</h3>
-                      <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}</span>
+                      <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
                     </div>
                     <p className="mt-2 leading-relaxed">{dosha.explanation}</p>
                   </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {report.notes.length > 0 && (
+            <section className="mt-6">
+              <h2 className="wordmark text-2xl text-maroon">{t.notes}</h2>
+              <ul className="mt-3 grid gap-2">
+                {report.notes.map((line, index) => (
+                  <li key={`${index}-${line.slice(0, 48)}`} className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${isWarningNote(line) ? "bg-gold/20" : "bg-white text-ink/80"}`}>{line}</li>
                 ))}
               </ul>
             </section>
@@ -636,40 +638,3 @@ function tone(level: string) {
   return "bg-clay/10 text-clay";
 }
 
-function pairLine(report: Report, lang: Lang) {
-  const side = (person: Report["bride"]) => {
-    const star = lang === "ta" ? person.nakshatra.ta : person.nakshatra.en;
-    const rasi = lang === "ta" ? person.rasi.ta : person.rasi.en;
-    return `${person.name ? `${person.name} · ` : ""}${star}, ${person.pada}, ${rasi}`;
-  };
-  return `${side(report.bride)}  ·  ${side(report.groom)}`;
-}
-
-function reportText(report: Report, lang: Lang) {
-  const lines = [
-    `Vinmeen · விண்மீன்`,
-    lang === "ta" ? report.tradition.ta : report.tradition.en,
-    `${report.score}/${report.maxScore}`,
-    report.verdictText,
-    pairLine(report, lang),
-    ...report.checks.map((c) => `${c.name}: ${levelLabel(lang, c.level)}`),
-    report.disclaimer,
-    window.location.href,
-  ];
-  return lines.join("\n");
-}
-
-function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width: number, line: number) {
-  const words = text.split(" ");
-  let row = "";
-  let yy = y;
-  for (const word of words) {
-    const trial = row ? `${row} ${word}` : word;
-    if (ctx.measureText(trial).width > width) {
-      ctx.fillText(row, x, yy);
-      row = word;
-      yy += line;
-    } else row = trial;
-  }
-  if (row) ctx.fillText(row, x, yy);
-}

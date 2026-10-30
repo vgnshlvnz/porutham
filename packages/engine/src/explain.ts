@@ -466,6 +466,26 @@ function kovilText(lang: Lang, result: string, id: string): string {
     : `Both are ${name}. Nagarathar custom avoids the same kovil.`;
 }
 
+function joinNames(names: string[], lang: Lang): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (lang === "ta") return names.join(", ");
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function doshaClause(names: string[], lang: Lang): string {
+  if (!names.length) return "";
+  const label = joinNames(names, lang);
+  if (lang === "ta") {
+    return names.length === 1
+      ? `${label} முக்கியத் தோஷம் நீங்கவில்லை`
+      : `${label} ஆகிய முக்கியத் தோஷங்கள் நீங்கவில்லை`;
+  }
+  return names.length === 1
+    ? `${label}, a critical dosha, did not clear`
+    : `${label}, critical doshas, did not clear`;
+}
+
 export function verdictText(
   lang: Lang,
   verdict: "excellent" | "good" | "borderline" | "poor" | "not-recommended",
@@ -474,19 +494,23 @@ export function verdictText(
   tradition: { en: string; ta: string },
   vetoIds: string[],
   fiveKey: string[],
+  doshaIds: string[] = [],
 ): string {
   const name = lang === "ta" ? tradition.ta : tradition.en;
   const mark = `${score}/${maxScore}`;
   const listedInFive = new Set(fiveKey);
   const veto = vetoIds.filter((id) => !listedInFive.has(id)).map((id) => (lang === "ta" ? meta(id).ta : meta(id).en)).join(", ");
   const five = fiveKey.map((id) => (lang === "ta" ? meta(id).ta : meta(id).en)).join(", ");
+  const doshaNames = doshaIds.map((id) => (lang === "ta" ? meta(id).ta : meta(id).en));
   if (lang === "ta") {
     if (verdict === "not-recommended") {
       const because = [
         veto ? `${veto} தவறியுள்ளது` : "",
         five ? `${five} இல்லாததால் ஐந்து முக்கியப் பொருத்த விதி பொருந்தவில்லை` : "",
+        doshaClause(doshaNames, lang),
       ].filter(Boolean).join("; ");
-      return `${name} மரபில் ${mark}. ${because}. மதிப்பெண் என்னவாக இருந்தாலும் இந்த வாசிப்பு பரிந்துரைப்பதில்லை. ஜோதிடரிடம் கேளுங்கள்.`;
+      const reason = because ? `${because}. ` : "";
+      return `${name} மரபில் ${mark}. ${reason}மதிப்பெண் என்னவாக இருந்தாலும் இந்த வாசிப்பு பரிந்துரைப்பதில்லை. ஜோதிடரிடம் கேளுங்கள்.`;
     }
     const word = verdict === "excellent" ? "சிறந்த பொருத்தம்" : verdict === "good" ? "நல்ல பொருத்தம்" : verdict === "borderline" ? "எல்லைக்கோட்டுப் பொருத்தம்" : "பல இடங்களில் பொருந்தவில்லை";
     return `${name} மரபில் ${mark}. ${word}. இறுதி முடிவுக்கு குடும்ப ஜோதிடரிடம் கேளுங்கள்.`;
@@ -495,8 +519,10 @@ export function verdictText(
     const because = [
       veto ? `${veto} did not clear` : "",
       five ? `${five} failed, and this tradition treats a miss on its five essential checks as enough to set the reading aside` : "",
+      doshaClause(doshaNames, lang),
     ].filter(Boolean).join("; ");
-    return `${name} gives ${mark}. ${because}. The reading is not recommended, whatever the other lines say. Please ask your astrologer.`;
+    const reason = because ? `${because}. ` : "";
+    return `${name} gives ${mark}. ${reason}The reading is not recommended, whatever the other lines say. Please ask your astrologer.`;
   }
   const word = verdict === "excellent" ? "An excellent match on this scale" : verdict === "good" ? "A good match on this scale" : verdict === "borderline" ? "A borderline match" : "Several lines do not agree";
   return `${name} gives ${mark}. ${word}. Sit with your family astrologer before anyone decides.`;

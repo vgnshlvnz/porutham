@@ -263,6 +263,129 @@ describe("tradition differences", () => {
   });
 });
 
+describe("critical doshas", () => {
+  it("sets a same-gothra Brahmin match aside and keeps the 6/11 score", () => {
+    const bride = { nakshatraId: "ashwini", pada: 1 as const, rasiId: "mesha", gothra: "Bharadwaja" };
+    const groom = { nakshatraId: "bharani", pada: 1 as const, rasiId: "mithuna", gothra: "Kashyapa" };
+    const different = matchHoroscopes({ bride, groom, traditionId: "brahmin", lang: "en" });
+    const same = matchHoroscopes({
+      bride,
+      groom: { ...groom, gothra: "bharadwaja" },
+      traditionId: "brahmin",
+      lang: "en",
+    });
+    expect(different.score).toBe(6);
+    expect(different.maxScore).toBe(11);
+    expect(different.verdict).toBe("good");
+    expect(different.doshas.find((d) => d.id === "gothra")!.level).toBe("match");
+    expect(same.score).toBe(6);
+    expect(same.doshas.find((d) => d.id === "gothra")).toMatchObject({ level: "none", critical: true });
+    expect(same.verdict).toBe("not-recommended");
+    expect(same.verdictText).toContain("6/11");
+    expect(same.verdictText).toContain("Gothra, a critical dosha, did not clear");
+    expect(same.verdictText.toLowerCase()).toContain("not recommended");
+    expect(same.notes.some((note) => note.startsWith("Groom:") && note.includes("Mithunam"))).toBe(true);
+    expect(same.doshas.find((d) => d.id === "dasa-sandhi")!.critical).toBe(false);
+
+    const tamil = matchHoroscopes({
+      bride,
+      groom: { ...groom, gothra: "bharadwaja" },
+      traditionId: "brahmin",
+      lang: "ta",
+    });
+    expect(tamil.verdict).toBe("not-recommended");
+    expect(tamil.verdictText).toContain("கோத்திரம் முக்கியத் தோஷம் நீங்கவில்லை");
+    expect(tamil.verdictText).toContain("பரிந்துரைப்பதில்லை");
+    expect(tamil.notes.some((note) => note.startsWith("மணமகன்:"))).toBe(true);
+  });
+
+  it("sets the same Nagarathar kovil aside and leaves a pirivu note partial", () => {
+    const bride = { nakshatraId: "mrigashira", pada: 1 as const, rasiId: "rishabha" };
+    const groom = { nakshatraId: "pushya", pada: 1 as const, rasiId: "kataka" };
+    const different = matchHoroscopes({
+      bride: { ...bride, kovil: "pillaiyarpatti" },
+      groom: { ...groom, kovil: "illupaikudi" },
+      traditionId: "chettiar",
+      lang: "en",
+    });
+    const same = matchHoroscopes({
+      bride: { ...bride, kovil: "pillaiyarpatti" },
+      groom: { ...groom, kovil: "pillaiyarpatti" },
+      traditionId: "chettiar",
+      lang: "en",
+    });
+    const pirivu = matchHoroscopes({
+      bride: { ...bride, kovil: "mathur" },
+      groom: { ...groom, kovil: "mathur" },
+      traditionId: "chettiar",
+      lang: "ta",
+    });
+    expect(different.score).toBe(7.5);
+    expect(different.verdict).toBe("good");
+    expect(different.doshas.find((d) => d.id === "kovil")!.level).toBe("match");
+    expect(same.score).toBe(7.5);
+    expect(same.doshas.find((d) => d.id === "kovil")).toMatchObject({ level: "none", critical: true });
+    expect(same.verdict).toBe("not-recommended");
+    expect(same.verdictText).toContain("Kovil, a critical dosha, did not clear");
+    expect(pirivu.doshas.find((d) => d.id === "kovil")).toMatchObject({ level: "partial", critical: false });
+    expect(pirivu.verdict).toBe("good");
+    expect(pirivu.verdictText).toContain("நல்ல பொருத்தம்");
+    expect(pirivu.verdictText).not.toContain("கோயில் முக்கியத் தோஷம்");
+  });
+
+  it("sets one-sided Chevvai aside even when the star score is excellent", () => {
+    const stars = matchHoroscopes({
+      bride: { nakshatraId: "uttara-phalguni", pada: 4, rasiId: "kanya" },
+      groom: { nakshatraId: "rohini", pada: 3, rasiId: "rishabha" },
+      traditionId: "tamil-nadu",
+      lang: "en",
+    });
+    const chennai = (date: string, time: string) => ({
+      birth: {
+        date,
+        time,
+        latitude: 13.0827,
+        longitude: 80.2707,
+        timezone: "Asia/Kolkata",
+        placeName: "Chennai",
+      },
+    });
+    const report = matchHoroscopes({
+      bride: chennai("1986-01-03", "06:20"),
+      groom: chennai("1986-02-18", "06:20"),
+      traditionId: "tamil-nadu",
+      lang: "en",
+    });
+    const tamil = matchHoroscopes({
+      bride: chennai("1986-01-03", "06:20"),
+      groom: chennai("1986-02-18", "06:20"),
+      traditionId: "tamil-nadu",
+      lang: "ta",
+    });
+    expect(stars.verdict).toBe("excellent");
+    expect(stars.score).toBe(9);
+    expect(report.score).toBe(9);
+    expect(report.bride.nakshatra.id).toBe("uttara-phalguni");
+    expect(report.groom.nakshatra.id).toBe("rohini");
+    expect(report.doshas.find((d) => d.id === "chevvai")).toMatchObject({ level: "none", critical: true });
+    expect(report.verdict).toBe("not-recommended");
+    expect(report.verdictText).toContain("Chevvai dosham, a critical dosha, did not clear");
+    expect(tamil.verdictText).toContain("செவ்வாய் தோஷம் முக்கியத் தோஷம் நீங்கவில்லை");
+    expect(tamil.verdictText).toContain("பரிந்துரைப்பதில்லை");
+  });
+
+  it("does not let a non-critical dosha set the reading aside", () => {
+    const report = matchHoroscopes({
+      bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha" },
+      groom: { nakshatraId: "magha", pada: 1, rasiId: "simha" },
+      traditionId: "kerala",
+      lang: "en",
+    });
+    expect(report.doshas.find((d) => d.id === "body-rajju")).toMatchObject({ level: "none", critical: false });
+    expect(report.verdict).not.toBe("not-recommended");
+  });
+});
+
 describe("time and astronomy", () => {
   it("applies historical offsets, including India's wartime clock and DST", () => {
     expect(localToUtc("1943-01-15", "10:30", "Asia/Kolkata").offset).toBe("+06:30");
