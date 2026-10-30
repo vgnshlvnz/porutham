@@ -1,6 +1,6 @@
 # Vinmeen · விண்மீன்
 
-Vinmeen is a thirumana porutham app for Tamil families everywhere: India, Sri Lanka, Malaysia, Singapore, the Gulf, Europe, the UK, Canada, the United States, Australia, and anywhere else. **Porutham / பொருத்தம்** is the match itself. Birth details are not stored on a server.
+Vinmeen is a thirumana porutham app for Tamil families everywhere: India, Sri Lanka, Malaysia, Singapore, the Gulf, Europe, the UK, Canada, the United States, Australia, and anywhere else. **Porutham / பொருத்தம்** is the match itself. Birth details are not stored. A one-time link stores only the finished reading, for 7 days.
 
 The browser app calls a versioned API (`/api/v1`) that is private to this site. Both ship as one Cloudflare Worker: the API is [Hono](https://hono.dev), and the pages are static assets from Vite. The same web build is also published to GitHub Pages at [https://vgnshlv.nz/porutham/](https://vgnshlv.nz/porutham/).
 
@@ -18,20 +18,20 @@ npm run dev
 
 The Worker-hosted site calls `/api/v1` on the same host (`VITE_API_BASE` empty). The GitHub Pages build sets `VITE_API_BASE` to the Worker and Vite `base` to `/porutham/`. Both are the only callers the API accepts. There is no key signup and no public documentation.
 
-On first API start, apply the local D1 migration once:
+On first API start, apply the local D1 migrations once (`0001_init.sql` and `0002_shares.sql`):
 
 ```bash
 npm run migrate:local -w vinmeen-api
 ```
 
-`wrangler dev` keeps a local SQLite database. The in-memory rate-limit store is what `npm test` uses, so tests do not need D1. The `api_keys` table from the first migration is left in place and unused.
+`wrangler dev` keeps a local SQLite database. The in-memory rate-limit store is what `npm test` uses, so tests do not need D1. The `api_keys` table from the first migration is left in place and unused. `0002_shares.sql` is the one-time link table.
 
 ## How a family uses it
 
 1. Leave **Tamil Nadu** selected, or pick another tradition. Approximate traditions are labelled in both languages.
 2. For each person, either pick nakshatra, pada, and rasi, or enter date, time, and place.
 3. Place search uses the Open-Meteo geocoder (any town worldwide) and falls back to a built-in city list. The IANA timezone on the place is applied with historical daylight-saving rules, including India's 1942–1945 wartime offset.
-4. The result is a link you can send. It is also a text summary and a PNG card.
+4. The result is a text summary and a PNG card. **Share one-time link** stores the finished reading for 7 days under a random token and works a single time, so the message you send does not contain birth details. **Copy link** still copies this page's address, which does.
 
 Birth details are turned into a **Lahiri** sidereal Moon. The ascendant, Mars, Venus, Jupiter, and the mean lunar node are used only for the dosha lines that need a chart (Chevvai, Mangal, Rahu).
 
@@ -97,8 +97,29 @@ CORS reflects only an allowed origin: this host, `FIRST_PARTY_ORIGINS`, and loca
 | GET | `/api/v1/places?q=` | site | Place search |
 | POST | `/api/v1/nakshatra?lang=` | site | Moon nakshatra from birth details |
 | POST | `/api/v1/match` | site | Porutham for a pair |
+| POST | `/api/v1/shares` | site | Store a redacted match report for 7 days. Returns a token. |
+| GET | `/api/v1/shares/:token` | site | Return that report once, then mark it used. |
 
 `/api/v1/docs`, `/api/v1/openapi.json`, and `POST /api/v1/keys` are gone. Errors look like `{ "error": { "code", "message", "fields" } }`. Counts live in memory or in D1. If the Worker has a rate-limiting binding, that limit is applied as well.
+
+### One-time share links
+
+`POST /api/v1/shares` and `GET /api/v1/shares/:token` use the same site gate as the rest of the API. Anyone else gets `403`, including a request that sends `X-Api-Key`.
+
+The body is `{ "report": <the match response the page is already showing> }`. The server keeps an allowlist of that report: tradition, score, verdict, checks, doshas, notes, and the two people's names, nakshatra, pada, and rasi. It drops birth date, time, coordinates, place, and the sidereal longitude, even if the client sends them. The token is 32 random bytes (256 bits), encoded as unpadded base64url. It expires 7 days after it is created.
+
+`GET` returns the snapshot and sets `consumed_at` in the same statement:
+
+```sql
+UPDATE shares SET consumed_at = ?
+WHERE token = ? AND consumed_at IS NULL AND expires_at > ?
+```
+
+The row is returned only when that update's `changes` count is 1. A second read, and a read after `expires_at`, are `410 Gone`. Expired rows are deleted when a share is created or read. After that delete, the token is `404`. The page shows the same closed-link message for both.
+
+The link you send is `/s/<token>` (for example `https://vgnshlv.nz/porutham/s/<token>` or `https://vinmeen.rvigneshwaran1103.workers.dev/s/<token>`). `?share=<token>` on `/` or `/result` opens the same viewer. The Worker serves unknown paths as the Vite app (`not_found_handling: single-page-application`). The Pages build copies `index.html` to `404.html`, so `/porutham/s/<token>` loads the app there too. That response is the empty app shell. WhatsApp and other previews fetch the HTML and do not run the script, so they do not use the link up. The page's own `GET /api/v1/shares/:token` does, once, and then the page says the link has been used. A refresh is a second open and shows the closed-link message. If Chrome prerenders the link (`document.prerendering`), the page waits until that prerender is actually shown before it calls the API, so a discarded prerender does not use the link up.
+
+Responses send `Cache-Control: no-store`. The browser must not replay a cached reading. The stored reading includes the doshas and notes the result page shows, so the viewer matches that page.
 
 ## Deploy on Cloudflare Workers
 
@@ -119,9 +140,17 @@ npm run deploy -w vinmeen-api
 
 `npm run deploy` from the repo root builds the site and runs `wrangler deploy`. Use `--env production` when you want `ENVIRONMENT=production` and `FIRST_PARTY_ORIGINS=https://vgnshlv.nz,https://vgnshlvnz.github.io`. The Worker is named **vinmeen**. It serves `/api/*` and the Vite assets for everything else, at `https://vinmeen.rvigneshwaran1103.workers.dev`. That asset build leaves `VITE_API_BASE` empty and Vite `base` at `/`. `npm run dev` is the split local setup (Vite on 4321, Wrangler on 8787). The dev proxy is treated as the site because both sides are loopback and `ENVIRONMENT` is not `production`.
 
+Apply every file in `packages/api/migrations` before deploying a Worker that expects it. `0002_shares.sql` adds the `shares` table. Deploying without it makes one-time links fail. From `packages/api`:
+
+```bash
+npm run migrate:remote -w vinmeen-api
+```
+
+Run that against production yourself. This repository does not apply remote migrations on push.
+
 ## GitHub Pages
 
-`.github/workflows/pages.yml` builds `packages/web` on every push to `main` and deploys that build with GitHub’s Pages action. Pages for this repository publishes from that action. `vgnshlvnz.github.io` redirects to the owner's custom domain, and the site is served at [https://vgnshlv.nz/porutham/](https://vgnshlv.nz/porutham/). The build sets `VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev` and Vite `base` to `/porutham/`, so scripts, icons, `manifest.webmanifest`, and the font files resolve under that path, and the browser calls the Worker cross-origin from an allowlisted origin. `/result` is a client-side route, so the build also writes `404.html` (a copy of `index.html`) and `.nojekyll`.
+`.github/workflows/pages.yml` builds `packages/web` on every push to `main` and deploys that build with GitHub’s Pages action. Pages for this repository publishes from that action. `vgnshlvnz.github.io` redirects to the owner's custom domain, and the site is served at [https://vgnshlv.nz/porutham/](https://vgnshlv.nz/porutham/). The build sets `VITE_API_BASE=https://vinmeen.rvigneshwaran1103.workers.dev` and Vite `base` to `/porutham/`, so scripts, icons, `manifest.webmanifest`, and the font files resolve under that path, and the browser calls the Worker cross-origin from an allowlisted origin. `/result` and `/s/<token>` are client-side routes, so the build also writes `404.html` (a copy of `index.html`) and `.nojekyll`. A link of the form `/porutham/?share=<token>` also opens the reading, because that URL is the Pages index and does not need the 404 fallback.
 
 Build it locally with:
 
@@ -138,12 +167,12 @@ Create these resources:
 
 `env.production` sets `ENVIRONMENT` to `production` and `FIRST_PARTY_ORIGINS` to `https://vgnshlv.nz,https://vgnshlvnz.github.io`, so the Pages origins can call the API. The site does not embed an API key. Other apps are rejected.
 
-GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflows/pages.yml` publishes the web app to GitHub Pages on pushes to `main`. `.github/workflows/deploy.yml` is manual (`workflow_dispatch`) and needs `CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`. It does not run unless you start it. There are no new D1 migrations beyond `packages/api/migrations/0001_init.sql`.
+GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflows/pages.yml` publishes the web app to GitHub Pages on pushes to `main`. `.github/workflows/deploy.yml` is manual (`workflow_dispatch`) and needs `CLOUDFLARE_API_TOKEN` plus `CLOUDFLARE_ACCOUNT_ID`. It does not run unless you start it, and it does not apply D1 migrations. Migrations are `packages/api/migrations/0001_init.sql` and `packages/api/migrations/0002_shares.sql`. Apply `0002_shares.sql` on production D1 before deploying the Worker that serves one-time links.
 
 ## Project layout
 
 - `packages/engine` — stars, rulesets, Lahiri Moon, time zones. No Cloudflare or DOM types.
-- `packages/api` — Hono Worker and rate-limit store (`MemoryKeyStore` and `D1KeyStore`).
+- `packages/api` — Hono Worker, rate-limit store, and one-time shares (`MemoryKeyStore` and `D1KeyStore`).
 - `packages/web` — Vite + React. Talks only to the API. `VITE_API_BASE` defaults to same-origin; the Pages build points it at the Worker.
 
 ## Tests
@@ -152,7 +181,7 @@ GitHub Actions: `.github/workflows/ci.yml` runs tests on push. `.github/workflow
 npm test
 ```
 
-Engine tests cover all ten Tamil poruthams, each ruleset’s documented difference, historical offsets (Kolkata 1943 vs 1950, New York 1965 summer and winter, London, Sydney, Singapore 1975, Dubai), and the Chennai Moon fixture. API tests cover same-origin and Pages access, rejected outside callers (including ones that send a key), removed public routes, health, CORS, validation, Tamil explanations, rate limiting, and place search when the geocoder is down.
+Engine tests cover all ten Tamil poruthams, each ruleset’s documented difference, historical offsets (Kolkata 1943 vs 1950, New York 1965 summer and winter, London, Sydney, Singapore 1975, Dubai), and the Chennai Moon fixture. API tests cover same-origin and Pages access, rejected outside callers (including ones that send a key), removed public routes, health, CORS, validation, Tamil explanations, rate limiting, place search when the geocoder is down, and one-time shares (create, first read, second read `410`, expiry, and non-first-party `403`).
 
 ## Sources
 

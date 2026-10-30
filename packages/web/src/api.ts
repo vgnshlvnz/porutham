@@ -25,9 +25,60 @@ export function appHref(path: string): string {
 
 export function isResultHref(href: string): boolean {
   const path = href.split("?")[0] || "/";
-  const base = siteBase();
-  const rest = !base ? path : path === base ? "/" : path.startsWith(`${base}/`) ? path.slice(base.length) : path;
+  const rest = stripBase(path, siteBase());
   return rest === "/result" || rest.startsWith("/result/");
+}
+
+/** 32-byte base64url tokens from POST /api/v1/shares. */
+const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+export type ShareHref = { kind: "token"; token: string } | { kind: "invalid" };
+
+/**
+ * `/s/<token>` and `?share=<token>` (on `/` or `/result`).
+ * `base` is the Vite base without a trailing slash, e.g. `/porutham`.
+ */
+export function parseShareHref(href: string, base = siteBase()): ShareHref | null {
+  const qIndex = href.indexOf("?");
+  const path = qIndex === -1 ? href : href.slice(0, qIndex);
+  const search = qIndex === -1 ? "" : href.slice(qIndex + 1);
+  const params = new URLSearchParams(search);
+  if (params.has("share")) {
+    const share = params.get("share") ?? "";
+    return SHARE_TOKEN_RE.test(share) ? { kind: "token", token: share } : { kind: "invalid" };
+  }
+  const match = stripBase(path, base).match(/^\/s\/([^/]+)\/?$/);
+  if (!match) return null;
+  let token = match[1];
+  try {
+    token = decodeURIComponent(token);
+  } catch {
+    return { kind: "invalid" };
+  }
+  return SHARE_TOKEN_RE.test(token) ? { kind: "token", token } : { kind: "invalid" };
+}
+
+function stripBase(path: string, base: string): string {
+  if (!base) return path || "/";
+  if (path === base) return "/";
+  if (path.startsWith(`${base}/`)) return path.slice(base.length) || "/";
+  return path || "/";
+}
+
+const shareReads = new Map<string, Promise<{ report: Report; expiresAt: string }>>();
+
+/** One network read per page load. StrictMode remounts share this promise, so dev does not burn the link. */
+export function readShare(token: string): Promise<{ report: Report; expiresAt: string }> {
+  const existing = shareReads.get(token);
+  if (existing) return existing;
+  const pending = api<{ report: Report; expiresAt: string }>(`/api/v1/shares/${encodeURIComponent(token)}`, {
+    cache: "no-store",
+  }).catch((error: unknown) => {
+    if (!(error instanceof ApiError)) shareReads.delete(token);
+    throw error;
+  });
+  shareReads.set(token, pending);
+  return pending;
 }
 
 export class ApiError extends Error {
@@ -96,6 +147,7 @@ export interface Placement {
 
 export interface Report {
   tradition: { id: string; en: string; ta: string; confidence: string; summary: { en: string; ta: string } };
+  lang?: "en" | "ta";
   score: number;
   maxScore: number;
   verdict: string;

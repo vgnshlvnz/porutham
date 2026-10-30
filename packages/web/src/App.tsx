@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, appHref, isResultHref, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, api, appHref, isResultHref, parseShareHref, readShare, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
 import { planCard } from "./card";
 import { copy, levelLabel, type Lang } from "./i18n";
 import { isWarningNote, pairLine, reportText } from "./reportText";
@@ -61,14 +61,19 @@ export function App() {
     setHref(next);
   }
 
-  const result = isResultHref(href);
+  const share = parseShareHref(href);
+  const result = !share && isResultHref(href);
   const search = window.location.search;
   return (
     <div className="mx-auto min-h-screen max-w-3xl px-4 pb-10 pt-4 sm:px-6">
       <Header lang={lang} setLang={setLang} t={t} go={go} />
-      {result
-        ? <Result key={search} search={search} lang={lang} t={t} go={go} />
-        : <Home key={search} lang={lang} setLang={setLang} t={t} go={go} />}
+      {share ? (
+        <SharedResult token={share.kind === "token" ? share.token : ""} invalid={share.kind === "invalid"} lang={lang} setLang={setLang} t={t} go={go} />
+      ) : result ? (
+        <Result key={search} search={search} lang={lang} t={t} go={go} />
+      ) : (
+        <Home key={search} lang={lang} setLang={setLang} t={t} go={go} />
+      )}
     </div>
   );
 }
@@ -483,6 +488,8 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
 
   useEffect(() => {
     const next = new URLSearchParams(params);
@@ -503,6 +510,8 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
     }
     setReport(null);
     setError("");
+    setShareUrl("");
+    setNote("");
     let cancel = false;
     api<Report>("/api/v1/match", {
       method: "POST",
@@ -524,6 +533,29 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
     await navigator.clipboard.writeText(window.location.href);
     setNote(t.copied);
   }
+  async function shareOnce() {
+    if (!report || sharing) return;
+    setSharing(true);
+    setNote("");
+    try {
+      const created = await api<{ token: string; expiresAt: string }>("/api/v1/shares", {
+        method: "POST",
+        body: JSON.stringify({ report: reportForShare(report) }),
+      });
+      const url = new URL(appHref(`/s/${created.token}`), window.location.href).href;
+      setShareUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setNote(t.shareOnceCopied);
+      } catch {
+        setNote(t.shareOnceManual);
+      }
+    } catch (err: unknown) {
+      setNote(err instanceof ApiError ? err.message : t.shareOnceFailed);
+    } finally {
+      setSharing(false);
+    }
+  }
   async function copyText() {
     if (!report) return;
     await navigator.clipboard.writeText(reportText(report, lang, window.location.href));
@@ -531,34 +563,7 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
   }
   async function saveCard() {
     if (!report) return;
-    await document.fonts.ready;
-    const measureCtx = document.createElement("canvas").getContext("2d");
-    if (!measureCtx) return;
-    const measure = (text: string, font: string) => {
-      measureCtx.font = font;
-      return measureCtx.measureText(text).width;
-    };
-    const plan = planCard(report, lang, measure);
-    const canvas = document.createElement("canvas");
-    canvas.width = plan.width;
-    canvas.height = plan.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.fillStyle = plan.background;
-    ctx.fillRect(0, 0, plan.width, plan.height);
-    for (const rect of plan.rects) {
-      ctx.fillStyle = rect.color;
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    }
-    for (const run of plan.runs) {
-      ctx.font = run.font;
-      ctx.fillStyle = run.color;
-      ctx.fillText(run.text, run.x, run.y);
-    }
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png");
-    link.download = "vinmeen-porutham.png";
-    link.click();
+    await saveReportCard(report, lang);
   }
 
   return (
@@ -572,63 +577,227 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
       {!report && !error && <p className="mt-6">{t.working}</p>}
       {report && (
         <>
-          <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
-          {report.tradition.confidence === "approximate" && <p className="mt-2 inline-block rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-maroon">{lang === "ta" ? "தோராயமான மரபு" : "Approximate tradition"}</p>}
-          <h1 className="wordmark mt-3 text-6xl text-maroon">{report.score}<span className="text-3xl text-ink/50">/{report.maxScore}</span></h1>
-          <p className="mt-3 text-lg leading-relaxed">{report.verdictText}</p>
-          <p className="mt-2 text-sm text-ink/70">{pairLine(report, lang)}</p>
-          <ul className="mt-6 grid gap-3">
-            {report.checks.map((check) => (
-              <li key={check.id} className="rounded-3xl border border-line bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">{check.name}</h2>
-                    <p className="text-sm text-ink/60">{check.meaning}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${tone(check.level)}`}>{levelLabel(lang, check.level)}{check.critical ? ` · ${t.critical}` : ""}</span>
-                </div>
-                <p className="mt-2 leading-relaxed">{check.explanation}</p>
-                {check.maxPoints > 0 && <p className="mt-2 text-xs text-ink/50">{check.points}/{check.maxPoints}</p>}
-              </li>
-            ))}
-          </ul>
-          {report.doshas.length > 0 && (
-            <section className="mt-6">
-              <h2 className="wordmark text-2xl text-maroon">{t.dosha}</h2>
-              <ul className="mt-3 grid gap-3">
-                {report.doshas.map((dosha) => (
-                  <li key={dosha.id} className="rounded-3xl border border-dashed border-gold bg-white p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="font-semibold">{dosha.name}</h3>
-                      <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
-                    </div>
-                    <p className="mt-2 leading-relaxed">{dosha.explanation}</p>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {report.notes.length > 0 && (
-            <section className="mt-6">
-              <h2 className="wordmark text-2xl text-maroon">{t.notes}</h2>
-              <ul className="mt-3 grid gap-2">
-                {report.notes.map((line, index) => (
-                  <li key={`${index}-${line.slice(0, 48)}`} className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${isWarningNote(line) ? "bg-gold/20" : "bg-white text-ink/80"}`}>{line}</li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <Reading report={report} lang={lang} t={t} />
           <div className="mt-6 flex flex-wrap gap-2">
-            <button type="button" className="rounded-2xl bg-maroon px-4 py-3 text-sm font-semibold text-cream" onClick={copyLink}>{t.share}</button>
+            <button type="button" className="rounded-2xl bg-maroon px-4 py-3 text-sm font-semibold text-cream disabled:opacity-60" onClick={shareOnce} disabled={sharing}>{sharing ? t.shareOnceBusy : t.shareOnce}</button>
+            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyLink}>{t.share}</button>
             <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyText}>{t.text}</button>
             <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={saveCard}>{t.image}</button>
           </div>
-          {note && <p className="mt-2 text-sm text-sage">{note}</p>}
+          <p className="mt-2 text-sm leading-relaxed text-ink/60">{t.shareHint}</p>
+          {note && <p className="mt-2 text-sm text-sage" role="status">{note}</p>}
+          {shareUrl && (
+            <label className="mt-3 block text-sm font-semibold">
+              {t.shareOnce}
+              <input readOnly className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3 text-xs font-normal" value={shareUrl} onFocus={(e) => e.currentTarget.select()} />
+            </label>
+          )}
           <p className="mt-6 text-sm leading-relaxed text-ink/70">{report.disclaimer}</p>
         </>
       )}
     </main>
   );
+}
+
+async function saveReportCard(report: Report, lang: Lang) {
+  await document.fonts.ready;
+  const measureCtx = document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return;
+  const measure = (text: string, font: string) => {
+    measureCtx.font = font;
+    return measureCtx.measureText(text).width;
+  };
+  const plan = planCard(report, lang, measure);
+  const canvas = document.createElement("canvas");
+  canvas.width = plan.width;
+  canvas.height = plan.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = plan.background;
+  ctx.fillRect(0, 0, plan.width, plan.height);
+  for (const rect of plan.rects) {
+    ctx.fillStyle = rect.color;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  }
+  for (const run of plan.runs) {
+    ctx.font = run.font;
+    ctx.fillStyle = run.color;
+    ctx.fillText(run.text, run.x, run.y);
+  }
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = "vinmeen-porutham.png";
+  link.click();
+}
+
+function SharedResult({
+  token,
+  invalid,
+  lang,
+  setLang,
+  t,
+  go,
+}: {
+  token: string;
+  invalid: boolean;
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+  t: (typeof copy)[Lang];
+  go: (url: string) => void;
+}) {
+  const [report, setReport] = useState<Report | null>(null);
+  const [gone, setGone] = useState(invalid);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const appliedLang = useRef(false);
+
+  useEffect(() => {
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex";
+    document.head.appendChild(meta);
+    return () => meta.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!token || invalid) return;
+    let cancel = false;
+    const load = () => {
+      if (cancel) return;
+      readShare(token).then((body) => {
+        if (cancel) return;
+        setReport(body.report);
+        setGone(false);
+      }).catch((err: unknown) => {
+        if (cancel) return;
+        if (err instanceof ApiError && (err.status === 410 || err.status === 404)) setGone(true);
+        else setError(err instanceof ApiError ? err.message : t.apiDown);
+      });
+    };
+    const prerendering = "prerendering" in document && document.prerendering;
+    if (prerendering) {
+      const onShown = () => load();
+      document.addEventListener("prerenderingchange", onShown, { once: true });
+      return () => {
+        cancel = true;
+        document.removeEventListener("prerenderingchange", onShown);
+      };
+    }
+    load();
+    return () => { cancel = true; };
+  }, [token, invalid, t.apiDown]);
+
+  useEffect(() => {
+    if (!report || appliedLang.current) return;
+    if (report.lang === "en" || report.lang === "ta") {
+      appliedLang.current = true;
+      setLang(report.lang);
+    }
+  }, [report, setLang]);
+
+  async function copyText() {
+    if (!report) return;
+    await navigator.clipboard.writeText(reportText(report, lang, window.location.href));
+    setNote(t.textCopied);
+  }
+  async function saveCard() {
+    if (!report) return;
+    await saveReportCard(report, lang);
+  }
+
+  return (
+    <main>
+      <button type="button" className="text-sm text-maroon underline-offset-4 hover:underline" onClick={() => go("/")}>{t.shareBack}</button>
+      {error && <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-clay" role="alert">{error}</p>}
+      {gone && !report && (
+        <>
+          <h1 className="wordmark mt-6 text-4xl text-maroon">{t.shareGoneTitle}</h1>
+          <p className="mt-3 max-w-xl text-lg leading-relaxed">{t.shareGone}</p>
+        </>
+      )}
+      {!report && !error && !gone && <p className="mt-6">{t.working}</p>}
+      {report && (
+        <>
+          <p className="mt-4 rounded-2xl bg-gold/20 px-4 py-3 text-sm leading-relaxed text-maroon" role="status">{t.shareUsed}</p>
+          <Reading report={report} lang={lang} t={t} readOnlyLabel={t.shareReadOnly} />
+          <div className="mt-6 flex flex-wrap gap-2">
+            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyText}>{t.text}</button>
+            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={saveCard}>{t.image}</button>
+          </div>
+          {note && <p className="mt-2 text-sm text-sage" role="status">{note}</p>}
+          <p className="mt-6 text-sm leading-relaxed text-ink/70">{report.disclaimer}</p>
+        </>
+      )}
+    </main>
+  );
+}
+
+function Reading({ report, lang, t, readOnlyLabel }: { report: Report; lang: Lang; t: (typeof copy)[Lang]; readOnlyLabel?: string }) {
+  return (
+    <>
+      <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {report.tradition.confidence === "approximate" && <p className="inline-block rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-maroon">{lang === "ta" ? "தோராயமான மரபு" : "Approximate tradition"}</p>}
+        {readOnlyLabel && <p className="inline-block rounded-full bg-cream-deep px-3 py-1 text-xs font-semibold text-ink/70">{readOnlyLabel}</p>}
+      </div>
+      <h1 className="wordmark mt-3 text-6xl text-maroon">{report.score}<span className="text-3xl text-ink/50">/{report.maxScore}</span></h1>
+      <p className="mt-3 text-lg leading-relaxed">{report.verdictText}</p>
+      <p className="mt-2 text-sm text-ink/70">{pairLine(report, lang)}</p>
+      <ul className="mt-6 grid gap-3">
+        {report.checks.map((check) => (
+          <li key={check.id} className="rounded-3xl border border-line bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">{check.name}</h2>
+                <p className="text-sm text-ink/60">{check.meaning}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${tone(check.level)}`}>{levelLabel(lang, check.level)}{check.critical ? ` · ${t.critical}` : ""}</span>
+            </div>
+            <p className="mt-2 leading-relaxed">{check.explanation}</p>
+            {check.maxPoints > 0 && <p className="mt-2 text-xs text-ink/50">{check.points}/{check.maxPoints}</p>}
+          </li>
+        ))}
+      </ul>
+      {report.doshas.length > 0 && (
+        <section className="mt-6">
+          <h2 className="wordmark text-2xl text-maroon">{t.dosha}</h2>
+          <ul className="mt-3 grid gap-3">
+            {report.doshas.map((dosha) => (
+              <li key={dosha.id} className="rounded-3xl border border-dashed border-gold bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold">{dosha.name}</h3>
+                  <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
+                </div>
+                <p className="mt-2 leading-relaxed">{dosha.explanation}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {report.notes.length > 0 && (
+        <section className="mt-6">
+          <h2 className="wordmark text-2xl text-maroon">{t.notes}</h2>
+          <ul className="mt-3 grid gap-2">
+            {report.notes.map((line, index) => (
+              <li key={`${index}-${line.slice(0, 48)}`} className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${isWarningNote(line) ? "bg-gold/20" : "bg-white text-ink/80"}`}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
+function reportForShare(report: Report): Report {
+  const copy = structuredClone(report) as Report & {
+    bride: { moonLongitude?: unknown };
+    groom: { moonLongitude?: unknown };
+  };
+  delete copy.bride.birth;
+  delete copy.groom.birth;
+  delete copy.bride.moonLongitude;
+  delete copy.groom.moonLongitude;
+  return copy;
 }
 
 function tone(level: string) {

@@ -22,6 +22,8 @@ export default {
       firstPartyOrigins: env.FIRST_PARTY_ORIGINS,
     });
     if (url.pathname.startsWith("/api/")) return app.fetch(request);
+    // /s/:token and /result?share= are the SPA shell. A preview fetch of the HTML
+    // must not consume the share; only GET /api/v1/shares/:token does.
     if (env.ASSETS) return env.ASSETS.fetch(request);
     return app.fetch(request);
   },
