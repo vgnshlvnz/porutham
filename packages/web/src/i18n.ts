@@ -44,7 +44,6 @@ export const copy = {
     score: "Score",
     dosha: "Alongside the score",
     nothing: "Nothing is stored on a server. A shared link only carries what you put in the address.",
-    docs: "API docs",
     ambiguous: "This clock time happened twice. The earlier offset was used.",
   },
   ta: {
@@ -90,7 +89,6 @@ export const copy = {
     score: "மதிப்பெண்",
     dosha: "மதிப்பெண்ணுக்கு அருகில்",
     nothing: "சேவையகத்தில் எதுவும் சேமிக்கப்படாது. பகிரும் இணைப்பில் நீங்கள் உள்ளிட்டது மட்டுமே இருக்கும்.",
-    docs: "API குறிப்பு",
     ambiguous: "இந்தக் கடிகார நேரம் இருமுறை நிகழ்ந்தது. முந்தைய வேறுபாடு பயன்படுத்தப்பட்டது.",
   },
 } as const;

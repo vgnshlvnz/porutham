@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, apiUrl, appHref, isResultHref, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
+import { ApiError, api, appHref, isResultHref, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
 import { copy, levelLabel, type Lang } from "./i18n";
 
 const RASI_IDS = ["mesha", "rishabha", "mithuna", "kataka", "simha", "kanya", "tula", "vrischika", "dhanus", "makara", "kumbha", "meena"];
@@ -72,15 +72,12 @@ function Header({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => vo
           <span className="wordmark mt-1 block text-sm text-maroon/80">விண்மீன்</span>
         </span>
       </a>
-      <div className="flex items-center gap-2">
-        <a className="hidden text-sm text-maroon underline-offset-4 hover:underline sm:inline" href={apiUrl("/api/v1/docs")}>{t.docs}</a>
-        <div className="flex rounded-full border border-line bg-white p-1 text-sm">
-          {(["en", "ta"] as Lang[]).map((code) => (
-            <button key={code} type="button" aria-pressed={lang === code} onClick={() => setLang(code)} className={`rounded-full px-3 py-1.5 ${lang === code ? "bg-maroon text-cream" : "text-ink"}`}>
-              {code === "en" ? "English" : "தமிழ்"}
-            </button>
-          ))}
-        </div>
+      <div className="flex rounded-full border border-line bg-white p-1 text-sm">
+        {(["en", "ta"] as Lang[]).map((code) => (
+          <button key={code} type="button" aria-pressed={lang === code} onClick={() => setLang(code)} className={`rounded-full px-3 py-1.5 ${lang === code ? "bg-maroon text-cream" : "text-ink"}`}>
+            {code === "en" ? "English" : "தமிழ்"}
+          </button>
+        ))}
       </div>
     </header>
   );
