@@ -7,7 +7,12 @@
   --color-maroon-deep: #4a1420;
   --color-gold: #c8962e;
   --color-gold-soft: #e7c56b;
+  /* Text gold. #c8962e on cream is about 2.5:1; this clears 4.5:1 on cream and on the top tint. */
+  --color-gold-ink: #805513;
   --color-ink: #2a1614;
+  /* Solid stand-ins for ink/50 and ink/60, which stay under 4.5:1 on cream. */
+  --color-ink-dim: #776a69;
+  --color-ink-quiet: #6e615f;
   --color-sage: #1e6b45;
   --color-clay: #8c3a3a;
   --color-line: #eadcc8;
@@ -38,4 +43,26 @@ button, input, select {
   font-family: var(--font-serif);
   font-weight: 560;
   letter-spacing: -0.03em;
+}
+
+.text-gold {
+  color: var(--color-gold-ink);
+}
+
+.text-ink\/50 {
+  color: var(--color-ink-dim);
+}
+
+.text-ink\/60 {
+  color: var(--color-ink-quiet);
+}
+
+::placeholder {
+  color: var(--color-ink-quiet);
+  opacity: 1;
+}
+
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-maroon);
+  outline-offset: 3px;
 }

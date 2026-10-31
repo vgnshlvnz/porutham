@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, appHref, isResultHref, parseShareHref, readShare, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
+import { ApiError, api, appHref, isResultHref, parseShareHref, readShare, releaseShareRead, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
 import { planCard } from "./card";
 import { copy, levelLabel, type Lang } from "./i18n";
 import { isWarningNote, pairLine, reportText } from "./reportText";
@@ -32,6 +32,18 @@ export const blank = (): PersonForm => ({
   gothra: "",
   kovil: "",
 });
+
+/** Home catalogue failures. 429 is "busy", not a dead connection. */
+export function catalogueProblem(err: unknown): "down" | "busy" {
+  return err instanceof ApiError && err.status === 429 ? "busy" : "down";
+}
+
+/** Match and share failures. 429 stays a wait-and-retry, not the connection message. */
+export function requestProblem(err: unknown, messages: { apiDown: string; busy: string }): { message: string; retry: boolean } {
+  if (err instanceof ApiError && err.status === 429) return { message: messages.busy, retry: true };
+  if (err instanceof ApiError) return { message: err.message, retry: false };
+  return { message: messages.apiDown, retry: true };
+}
 
 function initialLang(): Lang {
   const query = new URLSearchParams(window.location.search).get("lang");
@@ -113,6 +125,19 @@ function Logo() {
   );
 }
 
+function RetryAlert({ message, retryLabel, onRetry }: { message: string; retryLabel: string; onRetry?: () => void }) {
+  return (
+    <div className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-sm text-clay" role="alert">
+      <p>{message}</p>
+      {onRetry && (
+        <button type="button" className="mt-3 rounded-2xl border border-line bg-white px-4 py-2 font-semibold text-ink" onClick={onRetry}>
+          {retryLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void; t: (typeof copy)[Lang]; go: (url: string) => void }) {
   const [traditions, setTraditions] = useState<Tradition[]>([]);
   const [stars, setStars] = useState<Named[]>([]);
@@ -122,7 +147,11 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
   const [tradition, setTradition] = useState(seed.tradition);
   const [bride, setBride] = useState(seed.bride);
   const [groom, setGroom] = useState(seed.groom);
-  const [error, setError] = useState("");
+  const [bootProblem, setBootProblem] = useState<"" | "down" | "busy">("");
+  const [bootAttempt, setBootAttempt] = useState(0);
+  const [formInvalid, setFormInvalid] = useState(false);
+  const [formInvalidTick, setFormInvalidTick] = useState(0);
+  const formErrorRef = useRef<HTMLParagraphElement>(null);
   const [booting, setBooting] = useState(true);
 
   useEffect(() => {
@@ -132,6 +161,7 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
   useEffect(() => {
     let cancel = false;
     setBooting(true);
+    setBootProblem("");
     Promise.all([
       api<{ traditions: Tradition[] }>(`/api/v1/traditions?lang=${lang}`),
       api<{ nakshatras: Named[] }>(`/api/v1/nakshatras?lang=${lang}`),
@@ -143,14 +173,22 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
       setStars(nk.nakshatras);
       setRasis(rs.rasis);
       setKovils(kv.kovils);
-      setError("");
-    }).catch(() => {
-      if (!cancel) setError(t.apiDown);
+      setBootProblem("");
+    }).catch((err: unknown) => {
+      if (!cancel) setBootProblem(catalogueProblem(err));
     }).finally(() => {
       if (!cancel) setBooting(false);
     });
     return () => { cancel = true; };
-  }, [lang, t.apiDown]);
+  }, [lang, bootAttempt]);
+
+  useEffect(() => {
+    if (!formInvalid) return;
+    const node = formErrorRef.current;
+    if (!node) return;
+    node.focus();
+    node.scrollIntoView({ block: "nearest" });
+  }, [formInvalid, formInvalidTick]);
 
   const chosen = traditions.find((item) => item.id === tradition);
   const showGothra = tradition === "brahmin";
@@ -159,9 +197,11 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
   function submit(nextBride = bride, nextGroom = groom, nextTradition = tradition) {
     const missing = [nextBride, nextGroom].some((person) => person.mode === "star" ? !person.nakshatraId || !person.rasiId : !person.date || !person.time || !person.place);
     if (missing) {
-      setError(t.empty);
+      setFormInvalid(true);
+      setFormInvalidTick((tick) => tick + 1);
       return;
     }
+    setFormInvalid(false);
     const params = new URLSearchParams({ tradition: nextTradition, lang });
     writePerson(params, "b", nextBride);
     writePerson(params, "g", nextGroom);
@@ -185,23 +225,36 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
 
       <section className="mt-6 rounded-3xl border border-line bg-white/80 p-4 shadow-sm">
         <label className="text-sm font-semibold" htmlFor="tradition">{t.tradition}</label>
-        <select id="tradition" className="mt-2 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={tradition} onChange={(e) => setTradition(e.target.value)}>
+        <select id="tradition" className="mt-2 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={tradition} aria-busy={booting} onChange={(e) => setTradition(e.target.value)}>
+          {traditions.length === 0 && <option value={tradition}>{booting ? t.loading : "—"}</option>}
           {traditions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.confidence === "approximate" ? (lang === "ta" ? " · தோராயம்" : " · approximate") : ""}</option>)}
         </select>
         {chosen && <p className="mt-3 text-sm leading-relaxed text-ink/80">{chosen.summary}</p>}
       </section>
 
-      {booting && <p className="mt-6 text-sm">{t.loading}</p>}
-      {error && <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-sm text-clay" role="alert">{error}</p>}
+      {bootProblem && (
+        <RetryAlert
+          message={bootProblem === "busy" ? t.busy : t.apiDown}
+          retryLabel={t.retry}
+          onRetry={() => setBootAttempt((attempt) => attempt + 1)}
+        />
+      )}
 
       <div className="mt-4 grid gap-4">
-        <PersonCard title={t.bride} form={bride} setForm={setBride} stars={stars} rasis={rasis} kovils={kovils} t={t} lang={lang} showGothra={showGothra} showKovil={showKovil} />
-        <PersonCard title={t.groom} form={groom} setForm={setGroom} stars={stars} rasis={rasis} kovils={kovils} t={t} lang={lang} showGothra={showGothra} showKovil={showKovil} />
+        <PersonCard title={t.bride} form={bride} setForm={setBride} stars={stars} rasis={rasis} kovils={kovils} t={t} lang={lang} showGothra={showGothra} showKovil={showKovil} starsPending={booting && stars.length === 0} />
+        <PersonCard title={t.groom} form={groom} setForm={setGroom} stars={stars} rasis={rasis} kovils={kovils} t={t} lang={lang} showGothra={showGothra} showKovil={showKovil} starsPending={booting && stars.length === 0} />
       </div>
 
-      <div className="mt-4 flex gap-2">
-        <button type="button" onClick={example} className="rounded-2xl border border-line bg-white px-4 py-3 text-sm">{t.example}</button>
-        <button type="button" onClick={() => submit()} className="flex-1 rounded-2xl bg-maroon px-4 py-3 font-semibold text-cream">{t.see}</button>
+      <div className="mt-4 grid gap-3">
+        {formInvalid && (
+          <p id="check-error" ref={formErrorRef} tabIndex={-1} className="rounded-2xl bg-clay/10 px-4 py-3 text-sm text-clay" role="alert">
+            {t.empty}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button type="button" onClick={example} className="rounded-2xl border border-line bg-white px-4 py-3 text-sm">{t.example}</button>
+          <button type="button" onClick={() => submit()} aria-describedby={formInvalid ? "check-error" : undefined} className="flex-1 rounded-2xl bg-maroon px-4 py-3 font-semibold text-cream">{t.see}</button>
+        </div>
       </div>
       <p className="mt-4 text-xs leading-relaxed text-ink/60">{t.nothing}</p>
     </main>
@@ -219,6 +272,7 @@ function PersonCard(props: {
   lang: Lang;
   showGothra: boolean;
   showKovil: boolean;
+  starsPending: boolean;
 }) {
   const { form, setForm, t, stars, rasis } = props;
   const [places, setPlaces] = useState<Place[]>([]);
@@ -285,14 +339,14 @@ function PersonCard(props: {
         <input className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.name} onChange={(e) => patch({ name: e.target.value })} />
       </label>
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <button type="button" className={`rounded-2xl px-3 py-3 ${form.mode === "star" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "star" })}>{t.starMode}</button>
-        <button type="button" className={`rounded-2xl px-3 py-3 ${form.mode === "birth" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "birth" })}>{t.birthMode}</button>
+        <button type="button" aria-pressed={form.mode === "star"} className={`rounded-2xl px-3 py-3 ${form.mode === "star" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "star" })}>{t.starMode}</button>
+        <button type="button" aria-pressed={form.mode === "birth"} className={`rounded-2xl px-3 py-3 ${form.mode === "birth" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "birth" })}>{t.birthMode}</button>
       </div>
       {form.mode === "star" ? (
         <div className="mt-3 grid gap-3">
           <label className="text-sm font-semibold">{t.star}
-            <select className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.nakshatraId} onChange={(e) => patch({ nakshatraId: e.target.value })}>
-              <option value="">—</option>
+            <select className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.nakshatraId} aria-busy={props.starsPending} onChange={(e) => patch({ nakshatraId: e.target.value })}>
+              <option value="">{props.starsPending ? t.loading : "—"}</option>
               {stars.map((star) => <option key={star.id} value={star.id}>{star.name}{star.nameLocalEn && props.lang === "en" ? ` · ${star.nameLocalEn}` : ""}</option>)}
             </select>
           </label>
@@ -300,13 +354,13 @@ function PersonCard(props: {
             <p className="text-sm font-semibold">{t.pada}</p>
             <div className="mt-1 grid grid-cols-4 gap-2">
               {[1, 2, 3, 4].map((pada) => (
-                <button key={pada} type="button" className={`rounded-2xl py-3 ${form.pada === pada ? "bg-gold text-maroon-deep" : "bg-cream"}`} onClick={() => patch({ pada })}>{pada}</button>
+                <button key={pada} type="button" aria-pressed={form.pada === pada} aria-label={`${t.pada} ${pada}`} className={`rounded-2xl py-3 ${form.pada === pada ? "bg-gold text-maroon-deep" : "bg-cream"}`} onClick={() => patch({ pada })}>{pada}</button>
               ))}
             </div>
           </div>
           <label className="text-sm font-semibold">{t.rasi}
-            <select className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.rasiId} onChange={(e) => patch({ rasiId: e.target.value })}>
-              <option value="">—</option>
+            <select className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.rasiId} aria-busy={props.starsPending} onChange={(e) => patch({ rasiId: e.target.value })}>
+              <option value="">{props.starsPending ? t.loading : "—"}</option>
               {rasis.map((rasi) => <option key={rasi.id} value={rasi.id}>{rasi.name}{rasi.western ? ` · ${rasi.western}` : ""}</option>)}
             </select>
             <span className="mt-1 block text-xs font-normal text-ink/60">{t.rasiHint}</span>
@@ -487,6 +541,8 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
   const params = useMemo(() => new URLSearchParams(search), [search]);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
+  const [canRetry, setCanRetry] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [note, setNote] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
@@ -506,10 +562,12 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
     } catch (err) {
       setReport(null);
       setError(err instanceof Error ? err.message : t.apiDown);
+      setCanRetry(false);
       return;
     }
     setReport(null);
     setError("");
+    setCanRetry(false);
     setShareUrl("");
     setNote("");
     let cancel = false;
@@ -524,10 +582,13 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
     }).then((report) => {
       if (!cancel) setReport(report);
     }).catch((err: unknown) => {
-      if (!cancel) setError(err instanceof ApiError ? err.message : t.apiDown);
+      if (cancel) return;
+      const problem = requestProblem(err, t);
+      setError(problem.message);
+      setCanRetry(problem.retry);
     });
     return () => { cancel = true; };
-  }, [lang, params, t.apiDown]);
+  }, [lang, params, attempt, t]);
 
   async function copyLink() {
     await navigator.clipboard.writeText(window.location.href);
@@ -573,7 +634,7 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
         next.set("lang", lang);
         go(`/?${next.toString()}`);
       }}>{t.back}</button>
-      {error && <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-clay" role="alert">{error}</p>}
+      {error && <RetryAlert message={error} retryLabel={t.retry} onRetry={canRetry ? () => setAttempt((n) => n + 1) : undefined} />}
       {!report && !error && <p className="mt-6">{t.working}</p>}
       {report && (
         <>
@@ -648,6 +709,8 @@ function SharedResult({
   const [report, setReport] = useState<Report | null>(null);
   const [gone, setGone] = useState(invalid);
   const [error, setError] = useState("");
+  const [canRetry, setCanRetry] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [note, setNote] = useState("");
   const appliedLang = useRef(false);
 
@@ -670,8 +733,14 @@ function SharedResult({
         setGone(false);
       }).catch((err: unknown) => {
         if (cancel) return;
-        if (err instanceof ApiError && (err.status === 410 || err.status === 404)) setGone(true);
-        else setError(err instanceof ApiError ? err.message : t.apiDown);
+        if (err instanceof ApiError && (err.status === 410 || err.status === 404)) {
+          setGone(true);
+          setCanRetry(false);
+          return;
+        }
+        const problem = requestProblem(err, t);
+        setError(problem.message);
+        setCanRetry(problem.retry);
       });
     };
     const prerendering = "prerendering" in document && document.prerendering;
@@ -685,7 +754,7 @@ function SharedResult({
     }
     load();
     return () => { cancel = true; };
-  }, [token, invalid, t.apiDown]);
+  }, [token, invalid, attempt, t]);
 
   useEffect(() => {
     if (!report || appliedLang.current) return;
@@ -708,7 +777,13 @@ function SharedResult({
   return (
     <main>
       <button type="button" className="text-sm text-maroon underline-offset-4 hover:underline" onClick={() => go("/")}>{t.shareBack}</button>
-      {error && <p className="mt-4 rounded-2xl bg-clay/10 px-4 py-3 text-clay" role="alert">{error}</p>}
+      {error && (
+        <RetryAlert
+          message={error}
+          retryLabel={t.retry}
+          onRetry={canRetry ? () => { releaseShareRead(token); setAttempt((n) => n + 1); } : undefined}
+        />
+      )}
       {gone && !report && (
         <>
           <h1 className="wordmark mt-6 text-4xl text-maroon">{t.shareGoneTitle}</h1>
