@@ -39,3 +39,36 @@ button, input, select {
   font-weight: 560;
   letter-spacing: -0.03em;
 }
+
+/* Tamil has no case, and tracking pulls a word into spaced letters. */
+.kicker {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.kicker-wide {
+  letter-spacing: 0.16em;
+}
+
+:lang(ta) .kicker,
+:lang(ta) .wordmark {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Tamil mode labels need a full row at phone width; English still fits in two. */
+.choice-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+:lang(ta) .choice-row {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 40rem) {
+  :lang(ta) .choice-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
