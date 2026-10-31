@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchHoroscopes } from "../../engine/src/index.js";
-import { CARD_CONTENT_WIDTH, planCard, wrapLines } from "./card";
+import { CARD_CONTENT_WIDTH, CARD_MIN_HEIGHT, planCard, wrapLines } from "./card";
 import { reportText } from "./reportText";
 
 function measure(text: string, font: string): number {
@@ -65,7 +65,9 @@ describe("save card layout", () => {
     expect(plan.runs.some((run) => run.kind === "dosha" && run.text.includes("கோத்திரம்"))).toBe(true);
     expect(plan.runs.some((run) => run.kind === "note" && run.text.includes("மணமகன்:"))).toBe(true);
     expect(plan.runs.some((run) => run.text === "தோராயக் கூட்டு.")).toBe(false);
+    const footer = plan.runs.find((run) => run.kind === "footer")!;
     expect(plan.height).toBeGreaterThan(1350);
+    expect(plan.height).toBe(footer.y + 50);
     expect(plan.runs[plan.runs.length - 1].kind).toBe("footer");
 
     for (let i = 1; i < plan.runs.length; i++) {
@@ -94,9 +96,11 @@ describe("save card layout", () => {
       measure,
     );
     const checks = plan.runs.filter((run) => run.kind === "check");
+    const footer = plan.runs.find((run) => run.kind === "footer")!;
     expect(checks[0].y).toBe(620);
-    expect(plan.height).toBe(1350);
-    expect(plan.runs.find((run) => run.kind === "footer")!.y).toBe(1300);
+    expect(footer.y).toBeLessThan(900);
+    expect(plan.height).toBe(CARD_MIN_HEIGHT);
+    expect(footer.y + 50).toBeLessThan(plan.height);
     expect(plan.runs.some((run) => run.kind === "note")).toBe(false);
   });
 
