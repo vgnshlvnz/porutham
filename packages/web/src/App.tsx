@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, appHref, isResultHref, parseShareHref, readShare, type Named, type Place, type Placement, type Report, type Tradition } from "./api";
 import { planCard } from "./card";
-import { copy, levelLabel, type Lang } from "./i18n";
-import { isWarningNote, pairLine, reportText } from "./reportText";
+import { copy, type Lang } from "./i18n";
+import { EXAMPLE_PAIR, lineStatus, readingSummary, type StatusTone } from "./reading";
+import { isWarningNote, reportText } from "./reportText";
 
 const RASI_IDS = ["mesha", "rishabha", "mithuna", "kataka", "simha", "kanya", "tula", "vrischika", "dhanus", "makara", "kumbha", "meena"];
 
@@ -64,8 +65,9 @@ export function App() {
   const share = parseShareHref(href);
   const result = !share && isResultHref(href);
   const search = window.location.search;
+  const wide = Boolean(share || result);
   return (
-    <div className="mx-auto min-h-screen max-w-3xl px-4 pb-10 pt-4 sm:px-6">
+    <div className={`mx-auto min-h-screen px-4 pb-10 pt-4 sm:px-6 ${wide ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"}`}>
       <Header lang={lang} setLang={setLang} t={t} go={go} />
       {share ? (
         <SharedResult token={share.kind === "token" ? share.token : ""} invalid={share.kind === "invalid"} lang={lang} setLang={setLang} t={t} go={go} />
@@ -169,12 +171,12 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
   }
 
   function example() {
-    const nextBride = { ...blank(), nakshatraId: "rohini", pada: 1, rasiId: "rishabha", name: lang === "ta" ? "மணமகள்" : "Bride" };
-    const nextGroom = { ...blank(), nakshatraId: "pushya", pada: 1, rasiId: "kataka", name: lang === "ta" ? "மணமகன்" : "Groom" };
-    setTradition("tamil-nadu");
+    const nextBride = { ...blank(), ...EXAMPLE_PAIR.bride, name: lang === "ta" ? "மணமகள்" : "Bride" };
+    const nextGroom = { ...blank(), ...EXAMPLE_PAIR.groom, name: lang === "ta" ? "மணமகன்" : "Groom" };
+    setTradition(EXAMPLE_PAIR.tradition);
     setBride(nextBride);
     setGroom(nextGroom);
-    submit(nextBride, nextGroom, "tamil-nadu");
+    submit(nextBride, nextGroom, EXAMPLE_PAIR.tradition);
   }
 
   return (
@@ -733,58 +735,162 @@ function SharedResult({
 }
 
 function Reading({ report, lang, t, readOnlyLabel }: { report: Report; lang: Lang; t: (typeof copy)[Lang]; readOnlyLabel?: string }) {
+  const summary = readingSummary(report, lang);
+  const decisionColor = report.verdict === "not-recommended" ? "text-clay" : "text-maroon";
   return (
-    <>
-      <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {report.tradition.confidence === "approximate" && <p className="inline-block rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-maroon">{lang === "ta" ? "தோராயமான மரபு" : "Approximate tradition"}</p>}
-        {readOnlyLabel && <p className="inline-block rounded-full bg-cream-deep px-3 py-1 text-xs font-semibold text-ink/70">{readOnlyLabel}</p>}
+    <div className="mt-4 grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(16rem,28rem)_minmax(0,1fr)] lg:gap-10">
+      <header className="min-w-0 lg:sticky lg:top-4">
+        <p className="text-sm font-semibold uppercase tracking-[0.14em] text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {report.tradition.confidence === "approximate" && <p className="inline-block rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-maroon">{lang === "ta" ? "தோராயமான மரபு" : "Approximate tradition"}</p>}
+          {readOnlyLabel && <p className="inline-block rounded-full bg-cream-deep px-3 py-1 text-xs font-semibold text-ink/70">{readOnlyLabel}</p>}
+        </div>
+        <h1 className={`wordmark mt-3 break-words text-[1.65rem] leading-tight sm:text-[2.15rem] ${decisionColor}`}>{summary.decision}</h1>
+        <p className="mt-3 text-lg leading-relaxed">{summary.reason}</p>
+        <ul className="mt-4 grid gap-1 text-sm">
+          {summary.people.map((person) => (
+            <li key={person.role}>
+              <span className="font-semibold">{person.name}</span>
+              <span className="text-ink/75"> · {person.star} · {person.rasi}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-5 text-sm text-ink/60">{summary.scoreLabel}</p>
+        <p className="wordmark text-xl leading-none text-ink/70 sm:text-2xl">{report.score}<span className="text-base text-ink/45">/{report.maxScore}</span></p>
+        {summary.outsideScore && <p className="mt-2 text-sm leading-relaxed text-ink/80">{summary.outsideScore}</p>}
+      </header>
+      <div className="min-w-0">
+        {summary.settingAside.length > 0 && (
+          <section>
+            <h2 className="wordmark text-2xl text-maroon">{t.setsAside}</h2>
+            <ul className="mt-3 grid gap-2">
+              {summary.settingAside.map((dosha) => {
+                const status = lineStatus(dosha.level, true, lang);
+                return (
+                  <li key={dosha.id} className="rounded-2xl border border-clay/40 bg-white px-3 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <h3 className="min-w-0 break-words font-semibold">{dosha.name}</h3>
+                      <span className={`ml-auto shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-sm font-semibold ${toneClass(status.tone)}`}>{status.label}</span>
+                    </div>
+                    <p className="mt-1">
+                      <span className="inline-block whitespace-nowrap rounded-full bg-clay/10 px-2.5 py-0.5 text-xs font-semibold text-clay">{t.critical}</span>
+                    </p>
+                    <p className="mt-2 text-sm leading-relaxed">{dosha.explanation}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        <ul className={`grid gap-2 ${summary.settingAside.length > 0 ? "mt-4" : ""}`}>
+          {report.checks.map((check) => (
+            <StatusRow
+              key={check.id}
+              id={check.id}
+              name={check.name}
+              level={check.level}
+              critical={check.critical}
+              points={check.points}
+              maxPoints={check.maxPoints}
+              meaning={check.meaning}
+              explanation={check.explanation}
+              lang={lang}
+              t={t}
+            />
+          ))}
+        </ul>
+        {summary.otherDoshas.length > 0 && (
+          <section className="mt-6">
+            <h2 className="wordmark text-2xl text-maroon">{t.dosha}</h2>
+            <ul className="mt-3 grid gap-2">
+              {summary.otherDoshas.map((dosha) => (
+                <StatusRow
+                  key={dosha.id}
+                  id={dosha.id}
+                  name={dosha.name}
+                  level={dosha.level}
+                  critical={false}
+                  points={0}
+                  maxPoints={0}
+                  explanation={dosha.explanation}
+                  lang={lang}
+                  t={t}
+                />
+              ))}
+            </ul>
+          </section>
+        )}
+        {report.notes.length > 0 && (
+          <section className="mt-6">
+            <h2 className="wordmark text-2xl text-maroon">{t.notes}</h2>
+            <ul className="mt-3 grid gap-2">
+              {report.notes.map((line, index) => (
+                <li key={`${index}-${line.slice(0, 48)}`} className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${isWarningNote(line) ? "bg-gold/20" : "bg-white text-ink/80"}`}>{line}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
-      <h1 className="wordmark mt-3 text-6xl text-maroon">{report.score}<span className="text-3xl text-ink/50">/{report.maxScore}</span></h1>
-      <p className="mt-3 text-lg leading-relaxed">{report.verdictText}</p>
-      <p className="mt-2 text-sm text-ink/70">{pairLine(report, lang)}</p>
-      <ul className="mt-6 grid gap-3">
-        {report.checks.map((check) => (
-          <li key={check.id} className="rounded-3xl border border-line bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">{check.name}</h2>
-                <p className="text-sm text-ink/60">{check.meaning}</p>
-              </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${tone(check.level)}`}>{levelLabel(lang, check.level)}{check.critical ? ` · ${t.critical}` : ""}</span>
-            </div>
-            <p className="mt-2 leading-relaxed">{check.explanation}</p>
-            {check.maxPoints > 0 && <p className="mt-2 text-xs text-ink/50">{check.points}/{check.maxPoints}</p>}
-          </li>
-        ))}
-      </ul>
-      {report.doshas.length > 0 && (
-        <section className="mt-6">
-          <h2 className="wordmark text-2xl text-maroon">{t.dosha}</h2>
-          <ul className="mt-3 grid gap-3">
-            {report.doshas.map((dosha) => (
-              <li key={dosha.id} className="rounded-3xl border border-dashed border-gold bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-semibold">{dosha.name}</h3>
-                  <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
-                </div>
-                <p className="mt-2 leading-relaxed">{dosha.explanation}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+    </div>
+  );
+}
+
+function StatusRow({
+  id,
+  name,
+  level,
+  critical,
+  points,
+  maxPoints,
+  meaning,
+  explanation,
+  lang,
+  t,
+}: {
+  id: string;
+  name: string;
+  level: string;
+  critical: boolean;
+  points: number;
+  maxPoints: number;
+  meaning?: string;
+  explanation: string;
+  lang: Lang;
+  t: (typeof copy)[Lang];
+}) {
+  const [open, setOpen] = useState(false);
+  const status = lineStatus(level, critical, lang);
+  const panelId = `detail-${id}`;
+  return (
+    <li className="rounded-2xl border border-line bg-white px-3 py-2.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="min-w-0 break-words font-semibold">{name}</h3>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-sm font-semibold ${toneClass(status.tone)}`}>{status.label}</span>
+          {maxPoints > 0 && <span className="whitespace-nowrap text-xs text-ink/50">{points}/{maxPoints}</span>}
+        </div>
+      </div>
+      {status.criticalLabel && (
+        <p className="mt-1">
+          <span className="inline-block whitespace-nowrap rounded-full bg-clay/10 px-2.5 py-0.5 text-xs font-semibold text-clay">{status.criticalLabel}</span>
+        </p>
       )}
-      {report.notes.length > 0 && (
-        <section className="mt-6">
-          <h2 className="wordmark text-2xl text-maroon">{t.notes}</h2>
-          <ul className="mt-3 grid gap-2">
-            {report.notes.map((line, index) => (
-              <li key={`${index}-${line.slice(0, 48)}`} className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${isWarningNote(line) ? "bg-gold/20" : "bg-white text-ink/80"}`}>{line}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </>
+      {status.asideNote && <p className="mt-1 text-xs text-ink/70">{status.asideNote}</p>}
+      <button
+        type="button"
+        className="mt-1 text-sm font-semibold text-maroon underline-offset-4 hover:underline"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={open ? t.hideWhyName.replaceAll("{name}", name) : t.whyName.replaceAll("{name}", name)}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? t.hideWhy : t.why}
+      </button>
+      <div id={panelId} hidden={!open} className="mt-2 border-t border-line pt-2">
+        {meaning && <p className="text-sm text-ink/60">{meaning}</p>}
+        <p className={`text-sm leading-relaxed ${meaning ? "mt-1" : ""}`}>{explanation}</p>
+      </div>
+    </li>
   );
 }
 
@@ -800,10 +906,11 @@ function reportForShare(report: Report): Report {
   return copy;
 }
 
-function tone(level: string) {
-  if (level === "match") return "bg-sage/10 text-sage";
-  if (level === "partial") return "bg-gold/20 text-maroon";
-  if (level === "unavailable") return "bg-cream-deep text-ink/70";
-  return "bg-clay/10 text-clay";
+function toneClass(tone: StatusTone): string {
+  if (tone === "match") return "bg-sage/10 text-sage";
+  if (tone === "partial") return "bg-gold/20 text-maroon";
+  if (tone === "veto") return "bg-clay/10 text-clay";
+  if (tone === "neutral") return "bg-ink/10 text-ink";
+  return "bg-cream-deep text-ink/70";
 }
 
