@@ -35,8 +35,10 @@ export const blank = (): PersonForm => ({
 
 function initialLang(): Lang {
   const query = new URLSearchParams(window.location.search).get("lang");
-  if (query === "en" || query === "ta") return query;
-  return localStorage.getItem("vinmeen-lang") === "ta" ? "ta" : "en";
+  const stored = localStorage.getItem("vinmeen-lang") === "ta" ? "ta" : "en";
+  const lang: Lang = query === "en" || query === "ta" ? query : stored;
+  document.documentElement.lang = lang;
+  return lang;
 }
 
 export function App() {
@@ -85,7 +87,7 @@ function Header({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => vo
         <Logo />
         <span>
           <span className="wordmark block text-3xl leading-none text-maroon">Vinmeen</span>
-          <span className="wordmark mt-1 block text-sm text-maroon/80">விண்மீன்</span>
+          <span lang="ta" className="wordmark mt-1 block text-sm text-maroon/80">விண்மீன்</span>
         </span>
       </a>
       <div className="flex rounded-full border border-line bg-white p-1 text-sm">
@@ -179,7 +181,7 @@ function Home({ lang, setLang, t, go }: { lang: Lang; setLang: (l: Lang) => void
 
   return (
     <main>
-      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-gold">{t.tagline}</p>
+      <p className="kicker kicker-wide text-sm font-semibold text-gold">{t.tagline}</p>
       <h1 className="wordmark mt-2 max-w-xl text-4xl leading-tight text-maroon sm:text-5xl">{t.hero}</h1>
       <p className="mt-3 max-w-xl text-lg leading-relaxed text-ink/80">{t.lede}</p>
 
@@ -284,7 +286,7 @@ function PersonCard(props: {
       <label className="mt-3 block text-sm font-semibold">{t.name}
         <input className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3" value={form.name} onChange={(e) => patch({ name: e.target.value })} />
       </label>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+      <div className="choice-row mt-3 text-sm">
         <button type="button" className={`rounded-2xl px-3 py-3 ${form.mode === "star" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "star" })}>{t.starMode}</button>
         <button type="button" className={`rounded-2xl px-3 py-3 ${form.mode === "birth" ? "bg-maroon text-cream" : "bg-cream"}`} onClick={() => patch({ mode: "birth" })}>{t.birthMode}</button>
       </div>
@@ -337,7 +339,7 @@ function PersonCard(props: {
           )}
           <div className="flex flex-wrap gap-2">
             {t.chips.map((chip) => (
-              <button key={chip} type="button" className="rounded-full bg-cream px-3 py-1.5 text-xs" onClick={() => pickChip(chip)}>{chip}</button>
+              <button key={chip.query} type="button" className="whitespace-nowrap rounded-full bg-cream px-3 py-1.5 text-xs" onClick={() => pickChip(chip.query)}>{chip.label}</button>
             ))}
           </div>
           {form.place && <p className="text-xs text-ink/70">{form.place.timezone} · {form.place.latitude.toFixed(2)}, {form.place.longitude.toFixed(2)}</p>}
@@ -735,7 +737,7 @@ function SharedResult({
 function Reading({ report, lang, t, readOnlyLabel }: { report: Report; lang: Lang; t: (typeof copy)[Lang]; readOnlyLabel?: string }) {
   return (
     <>
-      <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
+      <p className="kicker mt-4 text-sm font-semibold text-gold">{lang === "ta" ? "பொருத்தம்" : "Porutham"} · {lang === "ta" ? report.tradition.ta : report.tradition.en}</p>
       <div className="mt-2 flex flex-wrap gap-2">
         {report.tradition.confidence === "approximate" && <p className="inline-block rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-maroon">{lang === "ta" ? "தோராயமான மரபு" : "Approximate tradition"}</p>}
         {readOnlyLabel && <p className="inline-block rounded-full bg-cream-deep px-3 py-1 text-xs font-semibold text-ink/70">{readOnlyLabel}</p>}
@@ -746,12 +748,12 @@ function Reading({ report, lang, t, readOnlyLabel }: { report: Report; lang: Lan
       <ul className="mt-6 grid gap-3">
         {report.checks.map((check) => (
           <li key={check.id} className="rounded-3xl border border-line bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
               <div>
                 <h2 className="text-lg font-semibold">{check.name}</h2>
                 <p className="text-sm text-ink/60">{check.meaning}</p>
               </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${tone(check.level)}`}>{levelLabel(lang, check.level)}{check.critical ? ` · ${t.critical}` : ""}</span>
+              <span className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-sm font-semibold ${tone(check.level)}`}>{levelLabel(lang, check.level)}{check.critical ? ` · ${t.critical}` : ""}</span>
             </div>
             <p className="mt-2 leading-relaxed">{check.explanation}</p>
             {check.maxPoints > 0 && <p className="mt-2 text-xs text-ink/50">{check.points}/{check.maxPoints}</p>}
@@ -764,9 +766,9 @@ function Reading({ report, lang, t, readOnlyLabel }: { report: Report; lang: Lan
           <ul className="mt-3 grid gap-3">
             {report.doshas.map((dosha) => (
               <li key={dosha.id} className="rounded-3xl border border-dashed border-gold bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                   <h3 className="font-semibold">{dosha.name}</h3>
-                  <span className={`rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
+                  <span className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-sm ${tone(dosha.level)}`}>{levelLabel(lang, dosha.level)}{dosha.critical ? ` · ${t.critical}` : ""}</span>
                 </div>
                 <p className="mt-2 leading-relaxed">{dosha.explanation}</p>
               </li>
