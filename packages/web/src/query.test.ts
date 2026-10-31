@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { blank, personFormFromQuery, readPerson, seedFromSearch, writePerson, type PersonForm } from "./App";
-import type { Place } from "./api";
+import { blank, catalogueProblem, personFormFromQuery, readPerson, requestProblem, seedFromSearch, writePerson, type PersonForm } from "./App";
+import { ApiError, type Place } from "./api";
+import { copy } from "./i18n";
 
 const chennai: Place = {
   name: "Chennai",
@@ -118,5 +119,28 @@ describe("seedFromSearch", () => {
   it("starts from the usual defaults when the query is empty", () => {
     const seed = seedFromSearch("");
     expect(seed).toEqual({ tradition: "tamil-nadu", lang: undefined, bride: blank(), groom: blank() });
+  });
+});
+
+describe("catalogue and request failures", () => {
+  it("keeps a 429 out of the connection-down message", () => {
+    const limited = new ApiError(429, "Too many requests. Wait a minute and try again.");
+    expect(catalogueProblem(limited)).toBe("busy");
+    expect(catalogueProblem(new ApiError(500, "The calculation failed."))).toBe("down");
+    expect(catalogueProblem(new TypeError("Failed to fetch"))).toBe("down");
+    expect(requestProblem(limited, copy.en)).toEqual({ message: copy.en.busy, retry: true });
+    expect(requestProblem(new TypeError("offline"), copy.ta)).toEqual({ message: copy.ta.apiDown, retry: true });
+    expect(requestProblem(new ApiError(400, "Bride, groom, and tradition are required."), copy.en)).toEqual({
+      message: "Bride, groom, and tradition are required.",
+      retry: false,
+    });
+  });
+
+  it("does not tell families to run npm", () => {
+    for (const lang of ["en", "ta"] as const) {
+      expect(copy[lang].apiDown).not.toMatch(/npm/i);
+      expect(copy[lang].busy).not.toMatch(/npm/i);
+      expect(copy[lang].apiDown.toLowerCase()).not.toContain("api");
+    }
   });
 });

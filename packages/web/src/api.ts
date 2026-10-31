@@ -67,6 +67,11 @@ function stripBase(path: string, base: string): string {
 
 const shareReads = new Map<string, Promise<{ report: Report; expiresAt: string }>>();
 
+/** Drop a cached share read so a retry reaches the network. An in-flight read stays shared until it settles. */
+export function releaseShareRead(token: string) {
+  shareReads.delete(token);
+}
+
 /** One network read per page load. StrictMode remounts share this promise, so dev does not burn the link. */
 export function readShare(token: string): Promise<{ report: Report; expiresAt: string }> {
   const existing = shareReads.get(token);
