@@ -14,7 +14,38 @@ export function pairLine(report: Pick<Report, "bride" | "groom">, lang: Lang): s
   return `${side(report.bride)}  ·  ${side(report.groom)}`;
 }
 
-export function reportText(report: Report, lang: Lang, pageUrl?: string): string {
+/** Bride (`b`) and groom (`g`) query keys that put a birth date, clock time, or coordinates on a link. */
+const BIRTH_DETAIL_KEY = /^[bg](?:date|time|lat|lon)$/i;
+
+/**
+ * True when a link's query string or fragment names a birth date, time, or coordinate.
+ * Unparseable strings are treated as unsafe so they are never copied out.
+ */
+export function urlHasBirthDetails(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url, "https://vinmeen.invalid");
+  } catch {
+    return true;
+  }
+  const keys = [...parsed.searchParams.keys()];
+  const hash = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
+  if (hash.includes("=")) keys.push(...new URLSearchParams(hash).keys());
+  return keys.some((key) => BIRTH_DETAIL_KEY.test(key));
+}
+
+/**
+ * Link safe to append to copied text.
+ * Prefer a one-time share link when one exists. Otherwise keep the page URL only
+ * when it has no birth date, time, or coordinates (star-only results, and `/s/<token>`).
+ */
+export function reportCopyUrl(pageUrl?: string, oneTimeUrl?: string): string | undefined {
+  if (oneTimeUrl && !urlHasBirthDetails(oneTimeUrl)) return oneTimeUrl;
+  if (pageUrl && !urlHasBirthDetails(pageUrl)) return pageUrl;
+  return undefined;
+}
+
+export function reportText(report: Report, lang: Lang, pageUrl?: string, oneTimeUrl?: string): string {
   const lines = [
     `Vinmeen · விண்மீன்`,
     lang === "ta" ? report.tradition.ta : report.tradition.en,
@@ -35,6 +66,7 @@ export function reportText(report: Report, lang: Lang, pageUrl?: string): string
     lines.push(...report.notes);
   }
   lines.push(report.disclaimer);
-  if (pageUrl) lines.push(pageUrl);
+  const link = reportCopyUrl(pageUrl, oneTimeUrl);
+  if (link) lines.push(link);
   return lines.join("\n");
 }

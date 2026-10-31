@@ -558,7 +558,7 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
   }
   async function copyText() {
     if (!report) return;
-    await navigator.clipboard.writeText(reportText(report, lang, window.location.href));
+    await navigator.clipboard.writeText(reportText(report, lang, window.location.href, shareUrl || undefined));
     setNote(t.textCopied);
   }
   async function saveCard() {
@@ -578,20 +578,25 @@ function Result({ search, lang, t, go }: { search: string; lang: Lang; t: (typeo
       {report && (
         <>
           <Reading report={report} lang={lang} t={t} />
-          <div className="mt-6 flex flex-wrap gap-2">
-            <button type="button" className="rounded-2xl bg-maroon px-4 py-3 text-sm font-semibold text-cream disabled:opacity-60" onClick={shareOnce} disabled={sharing}>{sharing ? t.shareOnceBusy : t.shareOnce}</button>
-            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyLink}>{t.share}</button>
-            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyText}>{t.text}</button>
-            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={saveCard}>{t.image}</button>
+          <div className="mt-6">
+            <button type="button" className="w-full rounded-2xl bg-maroon px-4 py-3 text-sm font-semibold text-cream disabled:opacity-60" onClick={shareOnce} disabled={sharing} aria-describedby="share-once-hint">{sharing ? t.shareOnceBusy : t.shareOnce}</button>
+            <p id="share-once-hint" className="mt-2 text-sm leading-relaxed text-ink/80">{t.shareHint}</p>
+            {shareUrl && (
+              <label className="mt-3 block text-sm font-semibold">
+                {t.shareOnce}
+                <input readOnly className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3 text-xs font-normal" value={shareUrl} onFocus={(e) => e.currentTarget.select()} />
+              </label>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyText}>{t.text}</button>
+              <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={saveCard}>{t.image}</button>
+            </div>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-ink/60">{t.shareHint}</p>
+          <div className="mt-4 border-t border-line pt-4">
+            <button type="button" className="rounded-2xl border border-line bg-white px-4 py-3 text-sm" onClick={copyLink} aria-describedby="page-link-hint">{t.share}</button>
+            <p id="page-link-hint" className="mt-2 text-sm leading-relaxed text-ink/80">{t.copyLinkHint}</p>
+          </div>
           {note && <p className="mt-2 text-sm text-sage" role="status">{note}</p>}
-          {shareUrl && (
-            <label className="mt-3 block text-sm font-semibold">
-              {t.shareOnce}
-              <input readOnly className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-3 text-xs font-normal" value={shareUrl} onFocus={(e) => e.currentTarget.select()} />
-            </label>
-          )}
           <p className="mt-6 text-sm leading-relaxed text-ink/70">{report.disclaimer}</p>
         </>
       )}
