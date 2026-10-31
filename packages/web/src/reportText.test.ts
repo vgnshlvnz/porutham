@@ -8,21 +8,104 @@ function measure(text: string, font: string): number {
   return Array.from(text).length * size * 0.62;
 }
 
+const starPage = "https://vinmeen.test/result?tradition=tamil-nadu&lang=en&bMode=star&bName=Meena&bNak=rohini&bPada=2&bRasi=rishabha&gMode=star&gName=Arun&gNak=pushya&gPada=1&gRasi=kataka";
+
+const birthPage = "https://vinmeen.test/result?tradition=tamil-nadu&lang=en&bMode=birth&bName=Meena&bDate=1990-08-15&bTime=10%3A30&bLat=13.0827&bLon=80.2707&bTz=Asia%2FKolkata&bPlace=Chennai&gMode=birth&gName=Arun&gDate=1992-01-02&gTime=08%3A15&gLat=9.9252&gLon=78.1198&gTz=Asia%2FKolkata&gPlace=Madurai";
+
+const groomBirthPage = "https://vinmeen.test/result?bMode=star&bNak=rohini&bPada=1&bRasi=rishabha&gMode=birth&gDate=1992-01-02&gTime=08%3A15&gLat=9.9252&gLon=78.1198";
+
+const oneTime = "https://vinmeen.test/s/abcdefghijklmnopqrstuvwxyzABCDEFGHIJK12";
+
+const birthMarkers = ["1990-08-15", "10:30", "10%3A30", "13.0827", "80.2707", "1992-01-02", "08:15", "9.9252", "78.1198", "bDate", "bTime", "bLat", "bLon", "gDate", "gTime", "gLat", "gLon", "vinmeen.test"];
+
+function expectNoBirthLeak(text: string) {
+  for (const marker of birthMarkers) expect(text).not.toContain(marker);
+}
+
 describe("reportText", () => {
-  it("includes a critical dosha and the rasi warning", () => {
-    const report = matchHoroscopes({
+  function reading() {
+    return matchHoroscopes({
       bride: { nakshatraId: "ashwini", pada: 1, rasiId: "mesha", gothra: "Bharadwaja" },
       groom: { nakshatraId: "bharani", pada: 1, rasiId: "mithuna", gothra: "bharadwaja" },
       traditionId: "brahmin",
       lang: "en",
     });
+  }
+
+  it("includes a critical dosha and the rasi warning", () => {
+    const report = reading();
     const text = reportText(report, "en", "https://example.test/result");
     expect(text).toContain("Gothra: Does not match · Critical");
     expect(text).toContain("same gothra");
     expect(text).toContain("Groom:");
     expect(text).toContain("Mithunam");
     expect(text).toContain("https://example.test/result");
+    expect(text.endsWith("https://example.test/result")).toBe(true);
     expect(report.verdict).toBe("not-recommended");
+  });
+
+  it("includes a star-only page URL, which has no birth date, time, or coordinates", () => {
+    const text = reportText(reading(), "en", starPage);
+    expect(text.endsWith(starPage)).toBe(true);
+    expectNoBirthLeak(text.replace(starPage, ""));
+  });
+
+  it("omits a page URL that carries birth date, time, and coordinates", () => {
+    const text = reportText(reading(), "en", birthPage);
+    expect(text).toContain("Gothra: Does not match · Critical");
+    expect(text).not.toContain("http");
+    expectNoBirthLeak(text);
+  });
+
+  it("omits the URL when only the groom side has birth details", () => {
+    const text = reportText(reading(), "ta", groomBirthPage);
+    expect(text).toContain("விண்மீன்");
+    expect(text).not.toContain("http");
+    expectNoBirthLeak(text);
+  });
+
+  it("points copied text at the one-time share link instead of the birth-details page", () => {
+    const text = reportText(reading(), "en", birthPage, oneTime);
+    expect(text.endsWith(oneTime)).toBe(true);
+    expect(text).not.toContain("bDate");
+    expect(text).not.toContain("1990-08-15");
+    expect(text).not.toContain("13.0827");
+    expect(text).not.toContain("gLat");
+    expect(text).not.toContain("/result?");
+  });
+
+  it("drops a one-time link that itself carries birth details", () => {
+    const leakedOnce = `${oneTime}?bDate=1990-08-15&bTime=10:30&bLat=13.0827&bLon=80.2707`;
+    const text = reportText(reading(), "en", birthPage, leakedOnce);
+    expect(text).not.toContain("http");
+    expectNoBirthLeak(text);
+  });
+
+  it("keeps a star-only page URL when the one-time link is unsafe", () => {
+    const leakedOnce = "https://vinmeen.test/s/token?gDate=1992-01-02&gLat=9.9252&gLon=78.1198";
+    const text = reportText(reading(), "en", starPage, leakedOnce);
+    expect(text.endsWith(starPage)).toBe(true);
+    expect(text).not.toContain("gDate");
+    expect(text).not.toContain("1992-01-02");
+  });
+
+  it("omits birth details hidden in the fragment or written with mixed-case keys", () => {
+    const fragment = "https://vinmeen.test/result#bDate=1990-08-15&bTime=10:30&bLat=13.0827&bLon=80.2707";
+    const mixed = "https://vinmeen.test/result?BDate=1990-08-15&gTIME=08:15&BLat=13.0827&GLon=78.1198";
+    for (const pageUrl of [fragment, mixed]) {
+      const text = reportText(reading(), "en", pageUrl);
+      expect(text).not.toContain("http");
+      expect(text).not.toContain("1990-08-15");
+      expect(text).not.toContain("13.0827");
+    }
+  });
+
+  it("includes a consumed one-time page and leaves an unparseable address off", () => {
+    const consumed = reportText(reading(), "en", oneTime);
+    expect(consumed.endsWith(oneTime)).toBe(true);
+    const broken = reportText(reading(), "ta", "http://[");
+    expect(broken).not.toContain("http");
+    expect(broken).toContain(reading().disclaimer);
   });
 });
 
